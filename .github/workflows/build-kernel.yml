@@ -24,7 +24,7 @@ jobs:
           export LD=aarch64-linux-gnu-ld
 
           # 加载 defconfig
-          make sprd_sharkl5_defconfig
+          make sprd_sharkl5_s100_defconfig
 
           # 禁用栈保护器
           scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
