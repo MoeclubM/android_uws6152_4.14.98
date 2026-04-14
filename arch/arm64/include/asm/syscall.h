@@ -62,15 +62,26 @@ static inline void syscall_get_arguments(struct task_struct *task,
 					 unsigned int i, unsigned int n,
 					 unsigned long *args)
 {
+	unsigned int n_bad;
+	size_t clear_size;
+
 	if (n == 0)
 		return;
 
 	if (i + n > SYSCALL_MAX_ARGS) {
 		unsigned long *args_bad = args + SYSCALL_MAX_ARGS - i;
-		unsigned int n_bad = n + i - SYSCALL_MAX_ARGS;
+		n_bad = n + i - SYSCALL_MAX_ARGS;
+		
+		
+		if (n_bad > 0 && n_bad <= SYSCALL_MAX_ARGS) {
+			clear_size = n_bad * sizeof(args[0]);
+			if (clear_size > 0 && clear_size <= 256) {
+				memset(args_bad, 0, clear_size);
+			}
+		}
+		
 		pr_warning("%s called with max args %d, handling only %d\n",
 			   __func__, i + n, SYSCALL_MAX_ARGS);
-		memset(args_bad, 0, n_bad * sizeof(args[0]));
 	}
 
 	if (i == 0) {
@@ -80,9 +91,10 @@ static inline void syscall_get_arguments(struct task_struct *task,
 		n--;
 	}
 
-	memcpy(args, &regs->regs[i], n * sizeof(args[0]));
+	if (n > 0) {
+		memcpy(args, &regs->regs[i], n * sizeof(args[0]));
+	}
 }
-
 static inline void syscall_set_arguments(struct task_struct *task,
 					 struct pt_regs *regs,
 					 unsigned int i, unsigned int n,

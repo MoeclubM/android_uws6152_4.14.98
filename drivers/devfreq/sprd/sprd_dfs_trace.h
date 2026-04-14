@@ -69,10 +69,9 @@ TRACE_EVENT(sprd_dfs_poll,
 );
 #endif /* _TRACE_SPRD_DDR_DFS_H */
 
-
 /* This part must be outside protection */
 #undef TRACE_INCLUDE_PATH
-#define TRACE_INCLUDE_PATH .
+#define TRACE_INCLUDE_PATH drivers/devfreq/sprd
 #undef TRACE_INCLUDE_FILE
 #define TRACE_INCLUDE_FILE sprd_dfs_trace
 #include <trace/define_trace.h>

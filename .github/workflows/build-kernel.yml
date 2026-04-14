@@ -1,15 +1,5 @@
-name: Build Kernel with AOSP 
-on:
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Release tag (e.g., v1.0)'
-        required: true
-        default: 'latest'
-      release_title:
-        description: 'Release title'
-        required: true
-        default: 'Kernel build'
+name: Build Pure Kernel (no dtb)
+on: push
 
 jobs:
   build:
@@ -23,15 +13,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git make bc bison flex libssl-dev build-essential libyaml-dev
-
-      - name: Download AOSP Clang
-        run: |
-          git clone --depth=1 -b master https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang
-
-      - name: Download AOSP GCC
-        run: |
-          git clone --depth=1 -b master https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc
+          sudo apt install -y git make bc bison flex libssl-dev build-essential \
+                              gcc-aarch64-linux-gnu clang libyaml-dev
 
       - name: Build kernel
         run: |
@@ -75,7 +58,7 @@ jobs:
           export KBUILD_CFLAGS="-Wno-error"
 
           # 编译内核
-          make -j$(nproc)
+          make -j$(nproc) KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=restrict -Wno-stringop-overflow -Wno-error=stringop-overflow -Wno-builtin-declaration-mismatch -Wno-error=builtin-declaration-mismatch -Wno-address-of-packed-member -Wno-array-bounds -Wno-error=array-bounds"
 
       - name: Locate pure kernel image
         id: locate
@@ -92,10 +75,10 @@ jobs:
       - name: Create Release and Upload Kernel
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: ${{ github.event.inputs.release_title }}
+          tag_name: 1.0
+          name: testbuild
           files: ${{ steps.locate.outputs.kernel_path }}
           draft: false
-          prerelease: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
