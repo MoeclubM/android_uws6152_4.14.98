@@ -44,15 +44,8 @@ jobs:
           # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
 
-          # 修复 dtc 的 yaml 链接：确保链接 libyaml
-          if grep -q '^HOSTLDLIBS_dtc' scripts/dtc/Makefile; then
-            sed -i 's/^HOSTLDLIBS_dtc.*/& -lyaml/' scripts/dtc/Makefile
-          else
-            echo 'HOSTLDLIBS_dtc := -lyaml' >> scripts/dtc/Makefile
-          fi
-
-          # 编译内核
-          make -j$(nproc)
+          # 编译内核，强制链接 libyaml
+          make -j$(nproc) HOSTLDLIBS_dtc='-lyaml'
 
       - name: Locate pure kernel image
         id: locate
