@@ -18,7 +18,7 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
-          ref: 'android-9.0'   # 指定分支
+          ref: 'android-9.0'
 
       - name: Install dependencies
         run: |
@@ -44,8 +44,12 @@ jobs:
           # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
 
-          # 强制从 dtc 编译中移除 yamltree.o（彻底避免 yaml 依赖）
-          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
+          # 修复 dtc 的 yaml 链接：确保链接 libyaml
+          if grep -q '^HOSTLDLIBS_dtc' scripts/dtc/Makefile; then
+            sed -i 's/^HOSTLDLIBS_dtc.*/& -lyaml/' scripts/dtc/Makefile
+          else
+            echo 'HOSTLDLIBS_dtc := -lyaml' >> scripts/dtc/Makefile
+          fi
 
           # 编译内核
           make -j$(nproc)
