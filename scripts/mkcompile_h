@@ -51,7 +51,7 @@ else
 fi
 if test -z "$KBUILD_BUILD_HOST"; then
 #	LINUX_COMPILE_HOST=`hostname`
-	LINUX_COMPILE_HOST="2KoE5_Kawaii_Server"
+	LINUX_COMPILE_HOST="SoraNeko_Kawaii_Server"
 else
 	LINUX_COMPILE_HOST=$KBUILD_BUILD_HOST
 fi
