@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git make bc bison flex libssl-dev build-essential \
-                              gcc-aarch64-linux-gnu clang
+                              gcc-aarch64-linux-gnu clang libyaml-dev
 
       - name: Build kernel
         run: |
