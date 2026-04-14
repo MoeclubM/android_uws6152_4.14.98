@@ -1,15 +1,5 @@
 name: Build Pure Kernel (no dtb)
-on:
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Release tag (e.g., v1.0)'
-        required: true
-        default: 'latest'
-      release_title:
-        description: 'Release title'
-        required: true
-        default: 'Kernel build'
+on: push
 
 jobs:
   build:
