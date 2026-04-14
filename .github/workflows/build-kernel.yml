@@ -17,7 +17,8 @@ jobs:
           kernel-url: './'              
           config: 'sprd_sharkl5_defconfig'          
           arch: 'arm64'
-          aosp-clang: true               
+          aosp-clang: true  
+          aosp-gcc: true
           android-version: 9
           anykernel3: true          
           release: true                  # 自动发布到 Releases
