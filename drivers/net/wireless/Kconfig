@@ -63,6 +63,19 @@ config PCMCIA_RAYCS
 	  To compile this driver as a module, choose M here: the module will be
 	  called ray_cs.  If unsure, say N.
 
+config WLAN_VENDOR_UNISOC
+	bool "Unisoc devices"
+	default y
+	help
+	  If you have a wireless card belonging to this class, say Y.
+
+	  Note that the answer to this question doesn't directly affect the
+	  kernel: saying N will just cause the configurator to skip all the
+	  questions about these cards. If you say Y, you will be asked for
+	  your specific card in the following questions.
+
+source "drivers/net/wireless/unisoc/Kconfig"
+
 config PCMCIA_WL3501
 	tristate "Planet WL3501 PCMCIA cards"
 	depends on CFG80211 && PCMCIA
