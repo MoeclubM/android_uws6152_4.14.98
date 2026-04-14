@@ -1,4 +1,4 @@
-name: Build Pure Kernel
+name: Build Pure Kernel (no dtb)
 on:
   workflow_dispatch:
     inputs:
@@ -22,7 +22,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git make bc bison flex libssl-dev build-essential \
-                              gcc-aarch64-linux-gnu clang libyaml-dev
+                              gcc-aarch64-linux-gnu clang
 
       - name: Build kernel
         run: |
@@ -39,8 +39,13 @@ jobs:
           scripts/config --disable CONFIG_CC_STACKPROTECTOR
           scripts/config --set-val CONFIG_CC_STACKPROTECTOR_NONE y
 
+          # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
 
+          # 禁用 DTC 的 YAML 输出（避免 libyaml 依赖）
+          scripts/config --disable CONFIG_DTC_YAML
+
+          # 编译内核
           make -j$(nproc)
 
       - name: Locate pure kernel image
