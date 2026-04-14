@@ -60,7 +60,7 @@ jobs:
           # sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
 
           # 编译内核
-          make -j$(nproc) KCFLAGS="-Wno-stringop-overflow -Wno-error=stringop-overflow -Wno-builtin-declaration-mismatch -Wno-error=builtin-declaration-mismatch -Wno-address-of-packed-member -Wno-array-bounds -Wno-error=array-bounds"
+          make -j$(nproc) KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=restrict -Wno-stringop-overflow -Wno-error=stringop-overflow -Wno-builtin-declaration-mismatch -Wno-error=builtin-declaration-mismatch -Wno-address-of-packed-member -Wno-array-bounds -Wno-error=array-bounds"
 
       - name: Locate pure kernel image
         id: locate
