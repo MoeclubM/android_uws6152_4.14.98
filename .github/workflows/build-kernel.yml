@@ -1,4 +1,4 @@
-name: Build Kernel Manually
+name: Build Kernel with System Toolchain
 on:
   workflow_dispatch:
     inputs:
@@ -17,59 +17,29 @@ jobs:
     steps:
       - name: Checkout kernel source
         uses: actions/checkout@v4
-        with:
-          ref: 'android-9.0'
 
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git make bc bison flex libssl-dev build-essential
-
-      - name: Set up Clang and GCC toolchains
-        run: |
-          # 克隆 AOSP Clang (最新)
-          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang --depth=1 -b master
-          # 克隆 AOSP GCC 4.9 (arm64)
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc --depth=1 -b master
+          sudo apt install -y git make bc bison flex libssl-dev build-essential gcc-aarch64-linux-gnu clang
 
       - name: Build kernel
         run: |
-          # 动态定位 Clang 目录
-          CLANG_DIR=$(ls clang | grep -E 'clang-r[0-9]+' | head -1)
-          if [ -z "$CLANG_DIR" ]; then
-            echo "Failed to find Clang directory"
-            exit 1
-          fi
-          echo "Clang directory: $CLANG_DIR"
-
-          # 动态定位 GCC bin 目录
-          if [ -d "gcc/bin" ]; then
-            GCC_BIN="$GITHUB_WORKSPACE/gcc/bin"
-          elif [ -d "gcc/aarch64-linux-android-4.9/bin" ]; then
-            GCC_BIN="$GITHUB_WORKSPACE/gcc/aarch64-linux-android-4.9/bin"
-          else
-            echo "Cannot find GCC bin directory"
-            exit 1
-          fi
-          echo "GCC bin: $GCC_BIN"
-
-          export PATH="$GITHUB_WORKSPACE/clang/$CLANG_DIR/bin:$GCC_BIN:$PATH"
           export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-android-
-
-          # 验证工具链
-          which aarch64-linux-android-gcc || { echo "GCC not found"; exit 1; }
-          which clang || { echo "Clang not found"; exit 1; }
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CC=clang
+          # 确保使用系统 GCC 的 as 和 ld
+          export LD=aarch64-linux-gnu-ld
 
           # 加载 defconfig
           make sprd_sharkl5_defconfig
 
-          # 禁用栈保护器（避免编译器不支持）
+          # 禁用栈保护器
           scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
           scripts/config --disable CONFIG_CC_STACKPROTECTOR
           scripts/config --set-val CONFIG_CC_STACKPROTECTOR_NONE y
 
-          # 编译内核
+          # 编译
           make -j$(nproc)
 
       - name: Locate kernel image
