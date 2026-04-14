@@ -1,0 +1,24 @@
+name: Build Android Kernel
+on:
+  workflow_dispatch: 
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          ref: 'android-9.0'  
+
+      - name: Build Kernel
+        uses: dabao1955/kernel_build_action@main
+        with:
+          kernel-url: './'              
+          config: 'defconfig'          
+          arch: 'arm64'
+          aosp-clang: true               
+          android-version: 9
+          anykernel3: true          
+          release: true                  # 自动发布到 Releases
+          access-token: ${{ secrets.GITHUB_TOKEN }}
