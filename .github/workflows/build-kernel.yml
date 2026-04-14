@@ -1,4 +1,4 @@
-name: Build Kernel with System Toolchain
+name: Build Pure Kernel
 on:
   workflow_dispatch:
     inputs:
@@ -21,34 +21,35 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt update
-          sudo apt install -y git make bc bison flex libssl-dev build-essential gcc-aarch64-linux-gnu clang
+          sudo apt install -y git make bc bison flex libssl-dev build-essential \
+                              gcc-aarch64-linux-gnu clang libyaml-dev
 
       - name: Build kernel
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CC=clang
-          # 确保使用系统 GCC 的 as 和 ld
           export LD=aarch64-linux-gnu-ld
 
           # 加载 defconfig
           make sprd_sharkl5_defconfig
 
-          # 禁用栈保护器
+          # 禁用栈保护器（避免编译器不支持）
           scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
           scripts/config --disable CONFIG_CC_STACKPROTECTOR
           scripts/config --set-val CONFIG_CC_STACKPROTECTOR_NONE y
 
-          # 编译
+          scripts/config --disable CONFIG_APPENDED_DTB
+
           make -j$(nproc)
 
-      - name: Locate kernel image
+      - name: Locate pure kernel image
         id: locate
         run: |
-          if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-            echo "kernel_path=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-          elif [ -f arch/arm64/boot/Image.gz ]; then
+          if [ -f arch/arm64/boot/Image.gz ]; then
             echo "kernel_path=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
+          elif [ -f arch/arm64/boot/Image ]; then
+            echo "kernel_path=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
           else
             echo "No kernel image found!"
             exit 1
