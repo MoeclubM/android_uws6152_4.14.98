@@ -1,15 +1,6 @@
-name: Build Kernel
+name: Build Android Kernel
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Release tag (e.g., v1.0)'
-        required: true
-        default: 'latest'
-      release_title:
-        description: 'Release title'
-        required: true
-        default: 'Kernel build'
 
 jobs:
   build:
@@ -18,45 +9,19 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
-          ref: 'android-9.0'   
+          ref: 'android-9.0'
 
-      - name: Install dependencies
-        run: |
-          sudo apt update
-          sudo apt install -y git make bc bison flex libssl-dev build-essential
-
-      - name: Set up Clang + GCC toolchains
-        run: |
-          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang --depth=1 -b master
-          git clone https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc --depth=1 -b master
-
-      - name: Build kernel
-        run: |
-          export PATH="$GITHUB_WORKSPACE/clang/clang-r416183b/bin:$GITHUB_WORKSPACE/gcc/bin:$PATH"
-          export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-android-
-          make sprd_sharkl5_defconfig
-          make -j$(nproc)
-
-      - name: Locate kernel image
-        id: locate
-        run: |
-          if [ -f arch/arm64/boot/Image.gz-dtb ]; then
-            echo "kernel_path=arch/arm64/boot/Image.gz-dtb" >> $GITHUB_OUTPUT
-          elif [ -f arch/arm64/boot/Image.gz ]; then
-            echo "kernel_path=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
-          else
-            echo "No kernel image found!"
-            exit 1
-          fi
-
-      - name: Create Release and Upload Kernel
-        uses: softprops/action-gh-release@v1
+      - name: Build Kernel
+        uses: dabao1955/kernel_build_action@main
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: ${{ github.event.inputs.release_title }}
-          files: ${{ steps.locate.outputs.kernel_path }}
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          kernel-url: './'
+          config: 'sprd_sharkl5_defconfig'  
+          arch: 'arm64'
+          aosp-clang: false
+          aosp-gcc: false
+          clang: true
+          gcc: true
+          android-version: 9
+          anykernel3: true
+          release: true
+          access-token: ${{ secrets.GITHUB_TOKEN }}
