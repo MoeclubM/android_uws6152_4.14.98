@@ -60,7 +60,7 @@ jobs:
           sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
 
           # 编译内核
-          make -j$(nproc)
+          make -j$(nproc) KCFLAGS="-Wno-array-bounds -Wno-error=array-bounds"
 
       - name: Locate pure kernel image
         id: locate
