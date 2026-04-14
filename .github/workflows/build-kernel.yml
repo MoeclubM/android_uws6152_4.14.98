@@ -15,7 +15,7 @@ jobs:
         uses: dabao1955/kernel_build_action@main
         with:
           kernel-url: './'              
-          config: 'defconfig'          
+          config: 'sprd_sharkl5_defconfig'          
           arch: 'arm64'
           aosp-clang: true               
           android-version: 9
