@@ -1,4 +1,4 @@
-/name: Build Pure Kernel (no dtb)
+name: Build Pure Kernel (no dtb)
 on: push
 
 jobs:
@@ -18,36 +18,44 @@ jobs:
 
       - name: Build kernel
         run: |
+          # 动态查找 Clang 和 GCC 路径
+          CLANG_DIR=$(ls clang | grep -E 'clang-r[0-9]+' | head -1)
+          GCC_BIN=$(find gcc -name "aarch64-linux-android-gcc" -type f -exec dirname {} \; -quit)
+
+          if [ -z "$CLANG_DIR" ]; then
+            echo "Error: Clang directory not found"
+            exit 1
+          fi
+          if [ -z "$GCC_BIN" ]; then
+            echo "Error: GCC binary not found"
+            exit 1
+          fi
+
+          echo "Clang: clang/$CLANG_DIR/bin"
+          echo "GCC: $GCC_BIN"
+
+          export PATH="$GITHUB_WORKSPACE/clang/$CLANG_DIR/bin:$GCC_BIN:$PATH"
           export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-android-
           export CC=clang
-          export LD=aarch64-linux-gnu-ld
 
           # 加载 defconfig
           make sprd_sharkl5_defconfig
 
-          # 禁用栈保护器
-          scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
-          scripts/config --disable CONFIG_CC_STACKPROTECTOR
-          scripts/config --set-val CONFIG_CC_STACKPROTECTOR_NONE y
-
           # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
 
-          # 禁用 ftrace（避免 address-of-packed-member 错误）
-          scripts/config --disable CONFIG_FTRACE
-          scripts/config --disable CONFIG_FUNCTION_TRACER
-          scripts/config --disable CONFIG_TRACING
-          scripts/config --disable CONFIG_DYNAMIC_FTRACE
+          # 确保 DTC 启用 YAML 并正确链接 libyaml
+          scripts/config --enable CONFIG_DTC_YAML
+          # 修改 Makefile 强制链接 libyaml
+          if grep -q '^HOSTLDLIBS_dtc' scripts/dtc/Makefile; then
+            sed -i 's/^HOSTLDLIBS_dtc.*/HOSTLDLIBS_dtc := -lyaml/' scripts/dtc/Makefile
+          else
+            echo 'HOSTLDLIBS_dtc := -lyaml' >> scripts/dtc/Makefile
+          fi
 
-          # 禁用 EFI（避免 undefined reference to __efistub_secure_init）
-          scripts/config --disable CONFIG_EFI
-          scripts/config --disable CONFIG_EFI_STUB
-          scripts/config --disable CONFIG_EFI_PARTITION
-
-          # 彻底移除 yamltree 相关代码
-          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
-          sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
+          # 关闭 -Werror（避免 Clang 警告中断编译）
+          export KBUILD_CFLAGS="-Wno-error"
 
           # 编译内核
           make -j$(nproc) KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=restrict -Wno-stringop-overflow -Wno-error=stringop-overflow -Wno-builtin-declaration-mismatch -Wno-error=builtin-declaration-mismatch -Wno-address-of-packed-member -Wno-array-bounds -Wno-error=array-bounds"
@@ -67,10 +75,10 @@ jobs:
       - name: Create Release and Upload Kernel
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event.inputs.release_tag }}
-          name: ${{ github.event.inputs.release_title }}
+          tag_name: 1.0
+          name: testbuild
           files: ${{ steps.locate.outputs.kernel_path }}
           draft: false
-          prerelease: false
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
