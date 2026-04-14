@@ -44,10 +44,14 @@ jobs:
           # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
 
-          # 1. 从 dtc 的编译中移除 yamltree.o
-          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
+          # 禁用 ftrace（避免 address-of-packed-member 错误）
+          scripts/config --disable CONFIG_FTRACE
+          scripts/config --disable CONFIG_FUNCTION_TRACER
+          scripts/config --disable CONFIG_TRACING
+          scripts/config --disable CONFIG_DYNAMIC_FTRACE
 
-          # 2. 注释掉 dtc.c 中对 dt_to_yaml 的调用
+          # 移除 yamltree 并注释 dt_to_yaml
+          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
           sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
 
           # 编译内核
