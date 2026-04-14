@@ -24,7 +24,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y git make bc bison flex libssl-dev build-essential \
-                              gcc-aarch64-linux-gnu clang libyaml-dev
+                              gcc-aarch64-linux-gnu clang
 
       - name: Build kernel
         run: |
@@ -44,8 +44,14 @@ jobs:
           # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
 
-          # 编译内核，强制链接 libyaml
-          make -j$(nproc) HOSTLDLIBS_dtc='-lyaml'
+          # 1. 从 dtc 的编译中移除 yamltree.o
+          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
+
+          # 2. 注释掉 dtc.c 中对 dt_to_yaml 的调用
+          sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
+
+          # 编译内核
+          make -j$(nproc)
 
       - name: Locate pure kernel image
         id: locate
