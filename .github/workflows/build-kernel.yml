@@ -17,12 +17,14 @@ jobs:
     steps:
       - name: Checkout kernel source
         uses: actions/checkout@v4
+        with:
+          ref: 'android-9.0'   # 指定分支
 
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y git make bc bison flex libssl-dev build-essential \
-                              gcc-aarch64-linux-gnu clang libyaml-dev
+                              gcc-aarch64-linux-gnu clang
 
       - name: Build kernel
         run: |
@@ -34,7 +36,7 @@ jobs:
           # 加载 defconfig
           make sprd_sharkl5_defconfig
 
-          # 禁用栈保护器（避免编译器不支持）
+          # 禁用栈保护器
           scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
           scripts/config --disable CONFIG_CC_STACKPROTECTOR
           scripts/config --set-val CONFIG_CC_STACKPROTECTOR_NONE y
@@ -42,8 +44,8 @@ jobs:
           # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
 
-          # 禁用 DTC 的 YAML 输出（避免 libyaml 依赖）
-          scripts/config --disable CONFIG_DTC_YAML
+          # 强制从 dtc 编译中移除 yamltree.o（彻底避免 yaml 依赖）
+          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
 
           # 编译内核
           make -j$(nproc)
