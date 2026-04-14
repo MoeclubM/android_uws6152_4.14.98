@@ -24,7 +24,7 @@ jobs:
           export LD=aarch64-linux-gnu-ld
 
           # 加载 defconfig
-          make sprd_sharkl5_s100_defconfig
+          make sprd_sharkl5_defconfig
 
           # 禁用栈保护器
           scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
@@ -52,6 +52,10 @@ jobs:
           # 编译内核
           make -j$(nproc) KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=restrict -Wno-stringop-overflow -Wno-error=stringop-overflow -Wno-builtin-declaration-mismatch -Wno-error=builtin-declaration-mismatch -Wno-address-of-packed-member -Wno-array-bounds -Wno-error=array-bounds"
 
+          # 编译并安装模块
+          make modules
+          make modules_install INSTALL_MOD_PATH=./modules_out
+
       - name: Locate pure kernel image
         id: locate
         run: |
@@ -64,12 +68,31 @@ jobs:
             exit 1
           fi
 
-      - name: Create Release and Upload Kernel
+      # 打包模块（同时生成 tar.gz 和 zip）
+      - name: Package modules
+        run: |
+          KERNEL_RELEASE=$(make -s kernelrelease)
+          echo "Kernel release: $KERNEL_RELEASE"
+          cd modules_out/lib/modules/$KERNEL_RELEASE
+          # 删除无用的软链接
+          rm -f source build
+          # 打包为 tar.gz
+          tar -czf ../../../../modules.tar.gz .
+          # 打包为 zip
+          zip -r ../../../../modules.zip .
+          cd ../../../..
+          # 验证生成的文件
+          ls -lh modules.tar.gz modules.zip
+
+      - name: Create Release and Upload Artifacts
         uses: softprops/action-gh-release@v1
         with:
           tag_name: 1.0
           name: testbuild
-          files: ${{ steps.locate.outputs.kernel_path }}
+          files: |
+            ${{ steps.locate.outputs.kernel_path }}
+            modules.tar.gz
+            modules.zip
           draft: false
           prerelease: true
         env:
