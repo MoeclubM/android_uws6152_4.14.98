@@ -1,7 +1,6 @@
 name: Apply SukiSU to testsukisu branch
 
-on:
-  workflow_dispatch:
+on: workflow_dispatch
 
 jobs:
   apply-sukisu:
