@@ -8,6 +8,9 @@ jobs:
     steps:
       - name: Checkout kernel source
         uses: actions/checkout@v4
+        with:
+            ref: 'android-9.0'
+            submodules: true
 
       - name: Install dependencies
         run: |
