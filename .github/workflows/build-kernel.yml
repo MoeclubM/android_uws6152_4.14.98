@@ -1,5 +1,7 @@
 name: Build Pure Kernel (no dtb)
-on: push
+on:
+    push:
+    workflow_dispatch:
 
 jobs:
   build:
