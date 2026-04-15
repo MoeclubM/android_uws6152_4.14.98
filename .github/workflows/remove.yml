@@ -1,0 +1,38 @@
+name: Cleanup ReSukiSU
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to cleanup'
+        required: true
+        default: 'android-9.0'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 0
+
+      - name: Run ReSukiSU cleanup script
+        run: |
+          curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s -- --cleanup
+
+      - name: Commit and push changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git commit -m "Cleanup ReSukiSU modifications [skip ci]"
+          git push origin ${{ github.event.inputs.branch }}
