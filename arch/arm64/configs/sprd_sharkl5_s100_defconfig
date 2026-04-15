@@ -1,5 +1,6 @@
 #
 # From Xintaiqi S100 original config by SoraNeko
+# Add some settings
 # Linux/arm64 4.14.98 Kernel Configuration
 #
 CONFIG_ARM64=y
@@ -541,7 +542,8 @@ CONFIG_RANDOMIZE_MODULE_REGION_FULL=y
 #
 # Boot options
 #
-CONFIG_CMDLINE=""
+CONFIG_CMDLINE="earlycon=sprd_serial,0x70100000,115200n8 console=ttyS1,115200n8 loop.max_part=7 loglevel=7 ignore_loglevel swiotlb=1 init=/init root=/dev/mmcblk0p33 rootfstype=ext4 ro rootwait androidboot.hardware=uws6152_1h10_go androidboot.dtbo_idx=0 printk.devkmsg=on lcd_id=ID3312 lcd_name=lcd_icn3312_mipi_480x480_edo_xtq lcd_base=9eb0c000 lcd_size=480x480 pixel_clock=16000000 logo_bpix=8 sysdump_magic=85500000 modem=shutdown ltemode=lcsfb rfboard.id=0 rfhw.id=40 crystal=4 32k.less=0 androidboot.pmic.chipid=2730 modemboot.method=emmcboot androidboot.verifiedbootstate=green androidboot.flash.locked=1 androidboot.serialno=48373304696324"
+CONFIG_CMDLINE_FORCE=y
 # CONFIG_EFI is not set
 # CONFIG_BUILD_ARM64_APPENDED_DTB_IMAGE is not set
 CONFIG_BUILD_ARM64_DTC=""
@@ -4159,9 +4161,9 @@ CONFIG_NLS_UTF8=y
 CONFIG_PRINTK_TIME=y
 CONFIG_CONSOLE_LOGLEVEL_DEFAULT=7
 CONFIG_PRINTK_CPUID=y
-CONFIG_MESSAGE_LOGLEVEL_DEFAULT=4
+CONFIG_MESSAGE_LOGLEVEL_DEFAULT=7
 # CONFIG_BOOT_PRINTK_DELAY is not set
-# CONFIG_DYNAMIC_DEBUG is not set
+CONFIG_DYNAMIC_DEBUG=y
 
 #
 # Compile-time checks and compiler options
