@@ -5,7 +5,7 @@ subdir-ccflags-y := \
 	-I$(src)/pcie \
 	-I$(src)/platform/rf
 
-obj-$(CONFIG_SC23XX) += wcn_bus.o
+obj-y += wcn_bus.o
 obj-$(CONFIG_WCN_SIPC) += sipc/
 obj-$(CONFIG_WCN_BOOT) += platform/
 obj-$(CONFIG_SC2342_INTEG) += boot/
