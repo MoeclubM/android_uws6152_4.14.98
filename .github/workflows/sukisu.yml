@@ -1,6 +1,12 @@
 name: Apply ReSukiSU
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to apply ReSukiSU'
+        required: true
+        default: 'android-9.0'
 
 jobs:
   apply-sukisu:
@@ -11,9 +17,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        # 默认拉取触发工作流的分支（即手动选择的分支，例如 testsukisu）
+        with:
+          ref: ${{ github.event.inputs.branch }}
+          fetch-depth: 0   # 关键：获取完整历史，使所有分支可用
 
-      - name: Run SukiSU integration script
+      - name: Ensure main branch is available (optional safety)
+        run: git fetch origin main
+
+      - name: Run ReSukiSU integration script
         run: |
           curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash
 
@@ -27,4 +38,4 @@ jobs:
             exit 0
           fi
           git commit -m "Apply ReSukiSU modifications [skip ci]"
-          git push
+          git push origin ${{ github.event.inputs.branch }}
