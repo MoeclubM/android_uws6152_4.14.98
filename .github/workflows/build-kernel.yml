@@ -68,12 +68,24 @@ jobs:
             exit 1
           fi
 
-      # 打包模块（同时生成 tar.gz 和 zip）
+      # 打包模块（修复版）
       - name: Package modules
         run: |
-          KERNEL_RELEASE=$(make -s kernelrelease)
+          # 获取干净的内核版本号（去除交互提示）
+          KERNEL_RELEASE=$(make -s kernelrelease 2>/dev/null | grep -v '^#' | tail -1)
+          if [ -z "$KERNEL_RELEASE" ]; then
+            echo "Error: Could not get kernel release"
+            exit 1
+          fi
           echo "Kernel release: $KERNEL_RELEASE"
-          cd modules_out/lib/modules/$KERNEL_RELEASE
+          
+          MODULES_DIR="modules_out/lib/modules/$KERNEL_RELEASE"
+          if [ ! -d "$MODULES_DIR" ]; then
+            echo "Error: Modules directory not found at $MODULES_DIR"
+            exit 1
+          fi
+          
+          cd "$MODULES_DIR"
           # 删除无用的软链接
           rm -f source build
           # 打包为 tar.gz
