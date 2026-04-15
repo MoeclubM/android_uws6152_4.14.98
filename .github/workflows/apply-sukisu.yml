@@ -12,7 +12,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        # 默认拉取触发工作流的分支（即手动选择的分支，例如 testsukisu）
 
       - name: Run SukiSU integration script
         run: |
