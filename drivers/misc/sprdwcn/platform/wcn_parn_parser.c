@@ -86,6 +86,7 @@ static int load_fstab_conf(const char *p_path, char *WCN_PATH)
 	char *p;
 	char *temp;
 	bool match_flag;
+	char tmp[256];
 
 	match_flag = false;
 	p = line;
@@ -113,9 +114,8 @@ static int load_fstab_conf(const char *p_path, char *WCN_PATH)
 					"%s", p_name);
 				WCN_PATH[strlen(WCN_PATH) - strlen(temp)]
 					= '\0';
-				char tmp[256];
 				snprintf(tmp, sizeof(tmp), "%swcnmodem", WCN_PATH);
-				strlcpy(WCN_PATH, tmp, 256);
+				strlcpy(WCN_PATH, tmp, sizeof(tmp));
 				match_flag = true;
 				break;
 			}
