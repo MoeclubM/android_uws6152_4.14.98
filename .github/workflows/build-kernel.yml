@@ -45,7 +45,6 @@ jobs:
           # 禁用 EFI（避免 undefined reference to __efistub_secure_init）
           scripts/config --disable CONFIG_EFI
           scripts/config --disable CONFIG_EFI_STUB
-          scripts/config --disable CONFIG_EFI_PARTITION
 
           # 彻底移除 yamltree 相关代码
           sed -i '/yamltree\.o/d' scripts/dtc/Makefile
