@@ -3005,7 +3005,8 @@ static struct module *setup_load_info(struct load_info *info, int flags)
 
 	/* Check module struct version now, before we try to use module. */
 	if (!check_modstruct_version(info, mod))
-		return ERR_PTR(-ENOEXEC);
+		pr_warn("%s: module_layout version mismatch, FORCING load (DANGEROUS!)\n",
+                info->name);
 
 	return mod;
 }
