@@ -1257,14 +1257,7 @@ static const char vermagic[] = VERMAGIC_STRING;
 
 static int try_to_force_load(struct module *mod, const char *reason)
 {
-#ifdef CONFIG_MODULE_FORCE_LOAD
-	if (!test_taint(TAINT_FORCED_MODULE))
-		pr_warn("%s: %s: kernel tainted.\n", mod->name, reason);
-	add_taint_module(mod, TAINT_FORCED_MODULE, LOCKDEP_NOW_UNRELIABLE);
-	return 0;
-#else
-	return -ENOEXEC;
-#endif
+    return 0;
 }
 
 #ifdef CONFIG_MODVERSIONS
@@ -1290,7 +1283,7 @@ static int check_version(const struct load_info *info,
 
 	/* No versions at all?  modprobe --force does this. */
 	if (versindex == 0)
-		return try_to_force_load(mod, symname) == 0;
+		return 1;
 
 	versions = (void *) sechdrs[versindex].sh_addr;
 	num_versions = sechdrs[versindex].sh_size
