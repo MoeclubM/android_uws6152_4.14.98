@@ -28,19 +28,8 @@ jobs:
           # 加载 defconfig
           make sprd_sharkl5_s100_defconfig
 
-          # 禁用栈保护器
-          scripts/config --disable CONFIG_CC_STACKPROTECTOR_STRONG
-          scripts/config --disable CONFIG_CC_STACKPROTECTOR
-          scripts/config --set-val CONFIG_CC_STACKPROTECTOR_NONE y
-
           # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
-
-          # 禁用 ftrace（避免 address-of-packed-member 错误）
-          scripts/config --disable CONFIG_FTRACE
-          scripts/config --disable CONFIG_FUNCTION_TRACER
-          scripts/config --disable CONFIG_TRACING
-          scripts/config --disable CONFIG_DYNAMIC_FTRACE
 
           # 禁用 EFI（避免 undefined reference to __efistub_secure_init）
           scripts/config --disable CONFIG_EFI
