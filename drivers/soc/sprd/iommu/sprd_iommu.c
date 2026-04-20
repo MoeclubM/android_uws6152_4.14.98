@@ -455,31 +455,6 @@ static bool sprd_iommu_clear_sg_iova(struct sprd_iommu_dev *iommu_dev,
 	return ret;
 }
 
-static void sprd_iommu_pool_show(struct sprd_iommu_dev *iommu_dev)
-{
-	int index;
-	struct sprd_iommu_sg_rec *rec;
-
-	if (iommu_dev->id == SPRD_IOMMU_VSP ||
-	    iommu_dev->id == SPRD_IOMMU_DISP)
-		return;
-
-	IOMMU_ERR("%s restore, map_count %u\n",
-		iommu_dev->init_data->name,
-		iommu_dev->map_count);
-
-	if (iommu_dev->map_count > 0)
-		for (index = 0; index < SPRD_MAX_SG_CACHED_CNT; index++) {
-			rec = &(iommu_dev->sg_pool.slot[index]);
-			if (rec->status == SG_SLOT_USED) {
-				IOMMU_ERR("Warning! buffer iova 0x%lx size 0x%lx sg 0x%lx buf %p map_usrs %d should be unmapped!\n",
-					rec->iova_addr, rec->iova_size,
-					rec->sg_table_addr, rec->buf_addr,
-					rec->map_usrs);
-			}
-		}
-}
-
 int sprd_iommu_attach_device(struct device *dev)
 {
 	struct device_node *np = NULL;
@@ -860,7 +835,7 @@ int sprd_iommu_restore(struct device *dev)
 	else
 		ret = -1;
 
-	sprd_iommu_pool_show(iommu_dev);
+	sprd_iommu_pool_show(dev);
 	return ret;
 }
 EXPORT_SYMBOL(sprd_iommu_restore);
@@ -1293,7 +1268,39 @@ EXPORT_SYMBOL_GPL(sprd_iommu_unmap_with_idx);
 /* Debug stubs - required by some camera modules but not actually called */
 void sprd_iommu_pool_show(struct device *dev)
 {
-    /* intentionally empty */
+    struct sprd_iommu_dev *iommu_dev;
+    int index;
+    struct sprd_iommu_sg_rec *rec;
+
+    if (!dev) {
+        IOMMU_ERR("null parameter err!\n");
+        return;
+    }
+
+    iommu_dev = sprd_iommu_get_subnode(dev);
+    if (!iommu_dev) {
+        IOMMU_ERR("get null iommu dev\n");
+        return;
+    }
+
+    if (iommu_dev->id == SPRD_IOMMU_VSP || iommu_dev->id == SPRD_IOMMU_DISP)
+        return;
+
+    IOMMU_ERR("%s restore, map_count %u\n",
+              iommu_dev->init_data->name,
+              iommu_dev->map_count);
+
+    if (iommu_dev->map_count > 0) {
+        for (index = 0; index < SPRD_MAX_SG_CACHED_CNT; index++) {
+            rec = &(iommu_dev->sg_pool.slot[index]);
+            if (rec->status == SG_SLOT_USED) {
+                IOMMU_ERR("Warning! buffer iova 0x%lx size 0x%lx sg 0x%lx buf %p map_usrs %d should be unmapped!\n",
+                    rec->iova_addr, rec->iova_size,
+                    rec->sg_table_addr, rec->buf_addr,
+                    rec->map_usrs);
+            }
+        }
+    }
 }
 EXPORT_SYMBOL_GPL(sprd_iommu_pool_show);
 
