@@ -143,6 +143,12 @@ int sprd_iommu_unmap_orphaned(struct sprd_iommu_unmap_data *data);
 int sprd_iommu_suspend(struct device *dev);
 int sprd_iommu_resume(struct device *dev);
 int sprd_iommu_restore(struct device *dev);
+/* Compatibility APIs for legacy camera modules */
+int sprd_iommu_map_single_page(struct device *dev, struct sprd_iommu_map_data *data);
+int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data, int idx);
+int sprd_iommu_unmap_with_idx(struct device *dev, struct sprd_iommu_unmap_data *data, int idx);
+void sprd_iommu_pool_show(struct device *dev);
+void sprd_iommu_reg_show(struct device *dev);
 int sprd_iommu_set_cam_bypass(bool vaor_bp_en);
 #else
 static inline int sprd_iommu_attach_device(struct device *dev)
@@ -186,6 +192,24 @@ static inline int sprd_iommu_restore(struct device *dev)
 {
 	return -ENODEV;
 }
+
+static inline int sprd_iommu_map_single_page(struct device *dev,
+					     struct sprd_iommu_map_data *data)
+{
+	return -ENODEV;
+}
+static inline int sprd_iommu_map_with_idx(struct device *dev,
+					  struct sprd_iommu_map_data *data, int idx)
+{
+	return -ENODEV;
+}
+static inline int sprd_iommu_unmap_with_idx(struct device *dev,
+					    struct sprd_iommu_unmap_data *data, int idx)
+{
+	return -ENODEV;
+}
+static inline void sprd_iommu_pool_show(struct device *dev) { }
+static inline void sprd_iommu_reg_show(struct device *dev) { }
 #endif
 
 struct sprd_iommu_ops {
