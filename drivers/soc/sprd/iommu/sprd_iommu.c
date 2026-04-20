@@ -1235,5 +1235,73 @@ static void __exit sprd_iommu_exit(void)
 module_init(sprd_iommu_init);
 module_exit(sprd_iommu_exit);
 
+/* ============================================================================
+ * Compatibility APIs for legacy camera modules
+ * These are simple wrappers around existing functions.
+ * ============================================================================
+ */
+
+/**
+ * sprd_iommu_map_single_page - Legacy single-page mapping API
+ * @dev:  master device
+ * @data: mapping parameters (buf, iova_size, flags, etc.)
+ *
+ * This is a wrapper around sprd_iommu_map(). It exists solely to satisfy
+ * the symbol dependency of prebuilt camera kernel modules.
+ */
+int sprd_iommu_map_single_page(struct device *dev, struct sprd_iommu_map_data *data)
+{
+    if (!dev || !data)
+        return -EINVAL;
+    return sprd_iommu_map(dev, data);
+}
+EXPORT_SYMBOL_GPL(sprd_iommu_map_single_page);
+
+/**
+ * sprd_iommu_map_with_idx - Legacy mapping with index API
+ * @dev:  master device
+ * @data: mapping parameters
+ * @idx:  IOMMU index (ignored in current hardware)
+ * To resolve s100 use modern driver
+ * Wrapper around sprd_iommu_map(). The index parameter is ignored.
+ */
+int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data, int idx)
+{
+    if (!dev || !data)
+        return -EINVAL;
+    /* idx is not used by the underlying hardware, silently ignore */
+    return sprd_iommu_map(dev, data);
+}
+EXPORT_SYMBOL_GPL(sprd_iommu_map_with_idx);
+
+/**
+ * sprd_iommu_unmap_with_idx - Legacy unmapping with index API
+ * @dev:  master device
+ * @data: unmapping parameters
+ * @idx:  IOMMU index (ignored)
+ *
+ * Wrapper around sprd_iommu_unmap().
+ */
+int sprd_iommu_unmap_with_idx(struct device *dev, struct sprd_iommu_unmap_data *data, int idx)
+{
+    if (!dev || !data)
+        return -EINVAL;
+    return sprd_iommu_unmap(dev, data);
+}
+EXPORT_SYMBOL_GPL(sprd_iommu_unmap_with_idx);
+
+/* Debug stubs - required by some camera modules but not actually called */
+void sprd_iommu_pool_show(struct device *dev)
+{
+    /* intentionally empty */
+}
+EXPORT_SYMBOL_GPL(sprd_iommu_pool_show);
+
+void sprd_iommu_reg_show(struct device *dev)
+{
+    /* intentionally empty */
+}
+EXPORT_SYMBOL_GPL(sprd_iommu_reg_show);
+
 MODULE_DESCRIPTION("SPRD IOMMU Driver");
 MODULE_LICENSE("GPL v2");
