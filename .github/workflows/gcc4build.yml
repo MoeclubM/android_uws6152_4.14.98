@@ -18,24 +18,26 @@ jobs:
           sudo apt update
           sudo apt install -y git make bc bison flex libssl-dev build-essential \
                               libyaml-dev
-          # 不需要 gcc-aarch64-linux-gnu 和 clang，我们将手动安装 GCC 4.9
+          # 不需要 gcc-aarch64-linux-gnu 和 clang，改为手动安装 AOSP GCC 4.9
 
       - name: Download and setup GCC 4.9 toolchain
         run: |
           mkdir -p $HOME/toolchains
           cd $HOME/toolchains
-          wget -q https://releases.linaro.org/components/toolchain/binaries/4.9-2017.01/aarch64-linux-gnu/gcc-linaro-4.9.4-2017.01-x86_64_aarch64-linux-gnu.tar.xz
-          tar -xf gcc-linaro-4.9.4-2017.01-x86_64_aarch64-linux-gnu.tar.xz
-          echo "$HOME/toolchains/gcc-linaro-4.9.4-2017.01-x86_64_aarch64-linux-gnu/bin" >> $GITHUB_PATH
+
+          git clone --depth=1 --branch=brillo-m7-dev \
+            https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+
+          echo "$HOME/toolchains/aarch64-linux-android-4.9/bin" >> $GITHUB_PATH
 
       - name: Verify toolchain
         run: |
-          aarch64-linux-gnu-gcc --version
+          aarch64-linux-android-gcc --version
 
       - name: Build kernel
         run: |
           export ARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-android-
           # 不再设置 CC，让内核构建系统自动使用 CROSS_COMPILE 指定的 gcc
 
           # 加载 defconfig
