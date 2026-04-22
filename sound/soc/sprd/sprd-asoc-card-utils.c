@@ -507,25 +507,20 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 	if (!of_property_read_u32(node, "mclk-fs", &val))
 		dai_props->mclk_fs = val;
 
-	ret = asoc_sprd_card_sub_parse_of(cpu, &dai_props->cpu_dai,
-					  &dai_link->cpu_of_node,
-					  &dai_link->cpu_dai_name, &cpu_args);
-	if (ret < 0)
-		goto dai_link_of_err;
-
-	ret = asoc_sprd_card_sub_parse_of(codec, &dai_props->codec_dai,
-					  &dai_link->codec_of_node,
-					  &dai_link->codec_dai_name, NULL);
-	if (ret < 0) {
-		if (-ENOENT == ret) {
-			pr_info("%s: parse for codec failed. Go to use a dummy codec.\n",
-			     __func__);
-			ret = asoc_sprd_card_dummy_codec_sel(codec, dai_link);
-			if (ret)
-				goto dai_link_of_err;
-		}
-	}
-
+    ret = asoc_sprd_card_sub_parse_of(codec, &dai_props->codec_dai,
+    				  &dai_link->codec_of_node,
+    				  &dai_link->codec_dai_name, NULL);
+    if (ret < 0) {
+    	pr_info("%s: parse for codec failed (ret=%d), try dummy codec.\n",
+    		__func__, ret);
+    	ret = asoc_sprd_card_dummy_codec_sel(codec, dai_link);
+    	if (ret) {
+    		pr_err("%s: dummy codec selection also failed (%d)\n",
+    		       __func__, ret);
+    		goto dai_link_of_err;
+    	}
+    }
+    
 	if (!dai_link->cpu_dai_name || !dai_link->codec_dai_name) {
 		dev_err(dev, "%s: xx_dai_name is NULL\n", __func__);
 		goto dai_link_of_err;
