@@ -70,6 +70,11 @@ CONFIG_KSU=y
 CONFIG_KSU_MANUAL_HOOK=y
 
 #
+# Test settings!!! Don't use directly!!
+#
+CONFIG_CHARGER_ETA6947=y
+
+#
 # IRQ subsystem
 #
 CONFIG_GENERIC_IRQ_PROBE=y
