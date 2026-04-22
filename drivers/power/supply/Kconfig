@@ -335,6 +335,15 @@ config BATTERY_MAX1721X
 	  Say Y here to enable support for the MAX17211/MAX17215 standalone
 	  battery gas-gauge.
 
+config CHARGER_ETA6947
+	tristate "ETA6947 battery charger driver"
+	depends on I2C
+	help
+	  Say Y here to enable support for the ETA6947 standalone
+	  battery charger. This driver provides charging and OTG
+	  control for devices using the ETA6947 charger IC.Tips 
+      from SoraNeko:This isn't official driver.Just a test!!!
+
 config BATTERY_Z2
 	tristate "Z2 battery driver"
 	depends on I2C && MACH_ZIPIT2
