@@ -1252,7 +1252,7 @@ static int eta6947_charger_probe(struct i2c_client *client,
 		return ret;
 
 	info->usb_notify.notifier_call = eta6947_charger_usb_change;
-	ret = usb_register_notify(info->usb_phy, &info->usb_notify);
+	ret = usb_register_notifier(info->usb_phy, &info->usb_notify);
 	if (ret) {
 		dev_err(dev, "failed to register notifier:%d\n", ret);
 		return ret;
@@ -1270,7 +1270,7 @@ static int eta6947_charger_remove(struct i2c_client *client)
 {
 	struct eta6947_charger_info *info = i2c_get_clientdata(client);
 
-	usb_unregister_notify(info->usb_phy, &info->usb_notify);
+	usb_unregister_notifier(info->usb_phy, &info->usb_notify);
 
 	return 0;
 }
