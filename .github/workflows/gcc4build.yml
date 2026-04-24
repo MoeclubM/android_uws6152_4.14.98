@@ -122,6 +122,8 @@ jobs:
             modules.tar.gz
             modules.zip
             build.log
+            System.map
+            Module.symvers
           draft: false
           prerelease: true
         env:
