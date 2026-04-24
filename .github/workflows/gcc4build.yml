@@ -48,6 +48,7 @@ jobs:
       - name: Verify toolchain
         run: |
           aarch64-linux-android-gcc --version
+          echo 'int main(void){return 0;}' | gcc -fstack-protector-strong -x c - -o /dev/null 2>&1
 
       - name: Build kernel
         run: |
