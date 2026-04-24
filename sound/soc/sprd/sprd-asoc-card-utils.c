@@ -30,6 +30,8 @@
 #include "sprd-headset.h"
 #include "sprd-audio.h"
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 int agdsp_access_enable(void)
 	__attribute__ ((weak, alias("__agdsp_access_enable")));
 static int __agdsp_access_enable(void)
@@ -45,6 +47,7 @@ static int __agdsp_access_disable(void)
 	pr_debug("%s\n", __func__);
 	return 0;
 }
+#pragma GCC diagnostic pop
 
 #define sprd_priv_to_dev(priv) ((priv)->snd_card.dev)
 #define sprd_priv_to_link(priv, i) ((priv)->snd_card.dai_link + i)
@@ -507,6 +510,12 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 	if (!of_property_read_u32(node, "mclk-fs", &val))
 		dai_props->mclk_fs = val;
 
+	ret = asoc_sprd_card_sub_parse_of(cpu, &dai_props->cpu_dai,
+					  &dai_link->cpu_of_node,
+					  &dai_link->cpu_dai_name, &cpu_args);
+	if (ret < 0)
+		goto dai_link_of_err;
+
     ret = asoc_sprd_card_sub_parse_of(codec, &dai_props->codec_dai,
     				  &dai_link->codec_of_node,
     				  &dai_link->codec_dai_name, NULL);
@@ -520,6 +529,18 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
     		goto dai_link_of_err;
     	}
     }
+        
+    /*
+     * In soc_bind_dai_link() will check cpu name after
+     * of_node matching if dai_link has cpu_dai_name.
+     * but, it will never match if name was created by
+     * fmt_single_name() remove cpu_dai_name if cpu_args
+     * was 0. See:
+     *      fmt_single_name()
+     *      fmt_multiple_name()
+     */
+    if (!cpu_args)
+        dai_link->cpu_dai_name = NULL;
     
 	if (!dai_link->cpu_dai_name || !dai_link->codec_dai_name) {
 		dev_err(dev, "%s: xx_dai_name is NULL\n", __func__);
@@ -549,18 +570,6 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 		dai_link->cpu_dai_name, dai_props->cpu_dai.sysclk);
 	dev_dbg(dev, "\tcodec : %s / %d\n",
 		dai_link->codec_dai_name, dai_props->codec_dai.sysclk);
-
-	/*
-	 * In soc_bind_dai_link() will check cpu name after
-	 * of_node matching if dai_link has cpu_dai_name.
-	 * but, it will never match if name was created by
-	 * fmt_single_name() remove cpu_dai_name if cpu_args
-	 * was 0. See:
-	 *      fmt_single_name()
-	 *      fmt_multiple_name()
-	 */
-	if (!cpu_args)
-		dai_link->cpu_dai_name = NULL;
 
 dai_link_of_err:
 	of_node_put(cpu);
@@ -659,7 +668,9 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 		priv->snd_card.name = priv->snd_card.dai_link->name;
 
 	ret = sprd_asoc_card_parse_ext_hook(dev, &priv->ext_hook);
-	if (ret < 0)
+	if (!ret)
+		sprd_asoc_ext_hook_register(&priv->ext_hook);
+	else if (ret == -EPROBE_DEFER)
 		return ret;
 
 	return sprd_asoc_card_parse_smartamp_boost(dev, &priv->boost_data);
@@ -757,8 +768,6 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
 	snd_soc_card_set_drvdata(&priv->snd_card, priv);
 
 	*card = &priv->snd_card;
-
-	sprd_asoc_ext_hook_register(&priv->ext_hook);
 
 err:
 	asoc_sprd_card_unref(&priv->snd_card);
