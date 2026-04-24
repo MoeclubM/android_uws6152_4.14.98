@@ -49,6 +49,7 @@ jobs:
         run: |
           aarch64-linux-android-gcc --version
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
+
       - name: Build kernel
         run: |
           export ARCH=arm64
@@ -136,11 +137,11 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Send Release
-      uses: appleboy/telegram-action@master
-      with:
-        to: ${{ secrets.TELEGRAM_TO }}
-        token: ${{ secrets.TELEGRAM_TOKEN }}
-        document: ${{ steps.locate.outputs.kernel_path }}
-        message: |
-          ✅ Finished！
-          Kernel_image:: ${{ steps.locate.outputs.kernel_path }}
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          document: ${{ steps.locate.outputs.kernel_path }}
+          message: |
+            ✅ Finished！
+            Kernel_image: ${{ steps.locate.outputs.kernel_path }}
