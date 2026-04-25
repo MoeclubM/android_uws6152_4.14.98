@@ -127,4 +127,32 @@ jobs:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
           KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
-          KERNEL_RELE
+          KERNEL_RELEASE: ${{ env.KERNEL_RELEASE }}
+        run: |
+          python3 -c "
+          import requests, os, sys
+
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          kernel_file = os.environ['KERNEL_FILE']
+          kernel_release = os.environ.get('KERNEL_RELEASE', 'unknown').strip()
+
+          if not os.path.exists(kernel_file):
+              print(f'❌ File not found: {kernel_file}')
+              sys.exit(1)
+
+          print(f'📤 Sending {kernel_file} ({os.path.getsize(kernel_file)} bytes)...')
+          url = f'https://api.telegram.org/bot{bot_token}/sendDocument'
+          caption = f'✅ Finished! Kernel: {os.path.basename(kernel_file)}  |  Version: {kernel_release}'
+          with open(kernel_file, 'rb') as f:
+              files = {'document': f}
+              data = {'chat_id': chat_id, 'caption': caption}
+              resp = requests.post(url, data=data, files=files)
+          print(f'Response: {resp.text}')
+          if resp.ok and resp.json().get('ok'):
+              print('✅ File sent successfully!')
+          else:
+              print('❌ Failed to send file.')
+              sys.exit(1)
+          "
+          echo "Done."
