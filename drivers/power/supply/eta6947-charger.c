@@ -1199,7 +1199,7 @@ static int eta6947_charger_probe(struct i2c_client *client,
 		return -EINVAL;
 	}
 
-	info->gpiod = devm_gpiod_get(dev, "chg-enable", ENABLE_CHARGE);
+	info->gpiod = devm_gpiod_get_optional(dev, "chg-enable", ENABLE_CHARGE);
 	if (IS_ERR(info->gpiod)) {
 		dev_err(dev, "failed to get enable gpio\n");
 		return PTR_ERR(info->gpiod);
