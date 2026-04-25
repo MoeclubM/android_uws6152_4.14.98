@@ -122,15 +122,39 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Send to Telegram via curl
+      # 新增：先测试纯文本消息，验证 Token 和 Chat ID 是否正常
+      - name: Test Telegram connection (text message)
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
+            -d "text=🔔 GitHub Actions: Build started." | tee /dev/stderr
+          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
+
+      # 发送内核文件（带完整调试输出）
+      - name: Send kernel to Telegram (debug)
+        id: telegram_send
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
           KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
         run: |
-          echo "Uploading ${KERNEL_FILE} to Telegram..."
-          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+          echo "Sending file: ${KERNEL_FILE}"
+          ls -lh "${KERNEL_FILE}"
+
+          # 打印完整 curl 输出（包含 HTTP 头与 JSON 响应）
+          RESPONSE=$(curl -v -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
             -F "chat_id=${CHAT_ID}" \
             -F "document=@${KERNEL_FILE}" \
-            -F "caption=✅ Finished! Kernel: ${KERNEL_FILE}" \
-            | tee /dev/stderr | grep -q '"ok":true' && echo "Success" || echo "Failed"
+            -F "caption=✅ Finished! Kernel: ${KERNEL_FILE}" 2>&1)
+
+          echo "========== API Response =========="
+          echo "${RESPONSE}"
+          echo "========== End of Response ========"
+
+          # 检查是否成功
+          if echo "${RESPONSE}" | grep -q '"ok":true'; then
+            echo "✅ File sent successfully!"
+          else
+            echo "❌ Send failed. Check the response above for details."
+            exit 1
+          fi
