@@ -42,7 +42,6 @@ jobs:
           aarch64-linux-android-gcc --version
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
 
-      # 发送文本消息（增加了时间戳）
       - name: Test Telegram connection (text message)
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
@@ -89,7 +88,7 @@ jobs:
             exit 1
           fi
           echo "Kernel release: $KERNEL_RELEASE"
-          
+
           echo "KERNEL_RELEASE=$(echo $KERNEL_RELEASE | xargs)" >> $GITHUB_ENV
 
           MODULES_DIR="modules_out/lib/modules/$KERNEL_RELEASE"
@@ -103,6 +102,18 @@ jobs:
           zip -r ../../../../modules.zip .
           cd ../../../..
           ls -lh modules.tar.gz modules.zip
+
+      - name: Package all artifacts for Telegram
+        run: |
+          mkdir -p telegram_artifacts
+          cp ${{ steps.locate.outputs.kernel_path }} telegram_artifacts/
+          cp modules.tar.gz modules.zip telegram_artifacts/ 2>/dev/null || true
+          cp System.map Module.symvers build.log telegram_artifacts/ 2>/dev/null || true
+          cd telegram_artifacts
+          zip -9 ../all_artifacts.zip *
+          cd ..
+          echo "Created all_artifacts.zip"
+          ls -lh all_artifacts.zip
 
       - name: Create Release and Upload Artifacts
         uses: softprops/action-gh-release@v1
@@ -121,38 +132,52 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Send kernel to Telegram (Python)
-        id: telegram_send
+      - name: Send all artifacts to Telegram
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
-          KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
           KERNEL_RELEASE: ${{ env.KERNEL_RELEASE }}
         run: |
+          COMMIT_MSG=$(git log -1 --pretty=%s)
+          export COMMIT_MSG
           python3 -c "
-          import requests, os, sys
+          import requests, os
 
           bot_token = os.environ['BOT_TOKEN']
           chat_id = os.environ['CHAT_ID']
-          kernel_file = os.environ['KERNEL_FILE']
           kernel_release = os.environ.get('KERNEL_RELEASE', 'unknown').strip()
+          commit_msg = os.environ.get('COMMIT_MSG', 'unknown').strip()
 
-          if not os.path.exists(kernel_file):
-              print(f'❌ File not found: {kernel_file}')
-              sys.exit(1)
+          repo = os.environ.get('GITHUB_REPOSITORY', 'unknown')
+          ref = os.environ.get('GITHUB_REF_NAME', 'unknown')
+          sha = os.environ.get('GITHUB_SHA', 'unknown')[:7]
 
-          print(f'📤 Sending {kernel_file} ({os.path.getsize(kernel_file)} bytes)...')
+          zip_file = 'all_artifacts.zip'
+          if not os.path.exists(zip_file):
+              print(f'❌ {zip_file} not found')
+              exit(1)
+
+          size = os.path.getsize(zip_file)
+          print(f'📤 Sending {zip_file} ({size} bytes)...')
+
+          caption = (
+              f'✅ Build completed!\n'
+              f'📦 Kernel version: {kernel_release}\n'
+              f'📝 Commit: {commit_msg} ({sha})\n'
+              f'🌿 Branch: {ref}\n'
+              f'📁 Repo: {repo}\n'
+              f'📎 All artifacts: kernel image, modules (tar.gz & zip), '
+              f'System.map, Module.symvers, build.log'
+          )
           url = f'https://api.telegram.org/bot{bot_token}/sendDocument'
-          caption = f'✅ Finished! Kernel: {os.path.basename(kernel_file)}  |  Version: {kernel_release}'
-          with open(kernel_file, 'rb') as f:
-              files = {'document': f}
-              data = {'chat_id': chat_id, 'caption': caption}
-              resp = requests.post(url, data=data, files=files)
+          with open(zip_file, 'rb') as f:
+              resp = requests.post(url,
+                                   data={'chat_id': chat_id, 'caption': caption},
+                                   files={'document': f})
           print(f'Response: {resp.text}')
           if resp.ok and resp.json().get('ok'):
-              print('✅ File sent successfully!')
+              print('✅ All files sent successfully!')
           else:
-              print('❌ Failed to send file.')
-              sys.exit(1)
+              print('❌ Failed to send.')
+              exit(1)
           "
-          echo "Done."
