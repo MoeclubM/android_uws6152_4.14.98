@@ -79,6 +79,7 @@ MODULE_DEVICE_TABLE(i2c, hyn_tpd_id);
 static const struct of_device_id hyn_dt_match[] =
 {
     {.compatible = "hynitron,hyn_ts",},
+    {.compatible = "hy,92xx",},
     {}
 };
 MODULE_DEVICE_TABLE(of, hyn_dt_match);
