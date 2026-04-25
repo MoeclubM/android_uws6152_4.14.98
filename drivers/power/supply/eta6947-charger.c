@@ -1283,6 +1283,8 @@ static int eta6947_charger_probe(struct i2c_client *client,
 
 	dev_info(dev, "Hello!Do you want to eat 6947?SoraNeko is waiting for you!\n");
 
+	steal_oled_init_seq();
+    
 	return 0;
 }
 
