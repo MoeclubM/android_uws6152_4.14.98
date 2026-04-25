@@ -590,6 +590,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 	struct device *dev = sprd_priv_to_dev(priv);
 	u32 val;
 	int ret;
+	struct device_node *dai_container;
 
 	if (!node) {
 		dev_err(dev, "%s: node is NULL\n", __func__);
@@ -641,7 +642,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 	dev_dbg(dev, "is_fm_open_src=%u\n", priv->is_fm_open_src);
 
 	/* Single/Muti DAI link(s) & New style of DT node */
-    struct device_node *dai_container = of_get_child_by_name(node, "sprd-audio-card,dai-link");
+    dai_container = of_get_child_by_name(node, "sprd-audio-card,dai-link");
     if (dai_container) {
         struct device_node *np = NULL;
         int i = 0;
