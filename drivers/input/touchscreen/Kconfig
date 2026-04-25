@@ -74,6 +74,14 @@ config TOUCHSCREEN_AD7879
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad7879.
 
+config TOUCHSCREEN_CST9217
+	tristate "CST9217 based touch panel controllers"
+	depends on I2C
+	depends on INPUT
+	help
+	  Say Y here if you have hynitron touch panel.
+	  If unsure, say N.
+
 config TOUCHSCREEN_AD7879_I2C
 	tristate "support I2C bus connection"
 	depends on TOUCHSCREEN_AD7879 && I2C
