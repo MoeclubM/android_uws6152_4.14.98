@@ -49,14 +49,6 @@ jobs:
         run: |
           aarch64-linux-android-gcc --version
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
-          
-      # 测试纯文本消息，确认 Bot 与 Chat ID 正常（已通过）
-      - name: Test Telegram connection (text message)
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
-            -d "text=🔔 GitHub Actions: Build started." | tee /dev/stderr
-          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
 
       - name: Build kernel
         run: |
@@ -144,37 +136,44 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 发送内核文件（修复版：复制到 /tmp 再上传，避免读取失败）
-      - name: Send kernel to Telegram
+      # 测试纯文本消息（已验证成功）
+      - name: Test Telegram connection (text message)
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
+            -d "text=🔔 GitHub Actions: Build started." | tee /dev/stderr
+          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
+
+      # === 用 Python 发送内核文件（可靠替代 curl） ===
+      - name: Send kernel to Telegram (Python)
         id: telegram_send
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
           KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
         run: |
-          echo "Original file: ${KERNEL_FILE}"
-          ls -lh "${KERNEL_FILE}"
+          python3 -c "
+          import requests, os, sys
 
-          # 复制到 /tmp 确保可读
-          TMPFILE="/tmp/$(basename ${KERNEL_FILE})"
-          cp "${KERNEL_FILE}" "${TMPFILE}"
-          echo "Copied to: ${TMPFILE}"
+          bot_token = os.environ['BOT_TOKEN']
+          chat_id = os.environ['CHAT_ID']
+          kernel_file = os.environ['KERNEL_FILE']
 
-          set +e
-          curl -v -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
-            -F "chat_id=${CHAT_ID}" \
-            -F "document=@${TMPFILE}" \
-            -F "caption=✅ Finished! Kernel: $(basename ${KERNEL_FILE})" > /tmp/curl_response.txt 2>&1
-          CURL_EXIT=$?
-          set -e
+          if not os.path.exists(kernel_file):
+              print(f'❌ File not found: {kernel_file}')
+              sys.exit(1)
 
-          echo "========== API Response =========="
-          cat /tmp/curl_response.txt
-          echo "========== End of Response ========"
-
-          if grep -q '"ok":true' /tmp/curl_response.txt; then
-            echo "✅ File sent successfully!"
-          else
-            echo "❌ Send failed (curl exit code: ${CURL_EXIT}). Check the response above."
-            exit 1
-          fi
+          print(f'📤 Sending {kernel_file} ({os.path.getsize(kernel_file)} bytes)...')
+          url = f'https://api.telegram.org/bot{bot_token}/sendDocument'
+          with open(kernel_file, 'rb') as f:
+              files = {'document': f}
+              data = {'chat_id': chat_id, 'caption': f'✅ Finished! Kernel: {os.path.basename(kernel_file)}'}
+              resp = requests.post(url, data=data, files=files)
+          print(f'Response: {resp.text}')
+          if resp.ok and resp.json().get('ok'):
+              print('✅ File sent successfully!')
+          else:
+              print('❌ Failed to send file.')
+              sys.exit(1)
+          "
+          echo "Done."
