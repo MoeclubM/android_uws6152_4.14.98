@@ -510,11 +510,15 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 	if (!of_property_read_u32(node, "mclk-fs", &val))
 		dai_props->mclk_fs = val;
 
-	ret = asoc_sprd_card_sub_parse_of(cpu, &dai_props->cpu_dai,
-					  &dai_link->cpu_of_node,
-					  &dai_link->cpu_dai_name, &cpu_args);
-	if (ret < 0)
-		goto dai_link_of_err;
+    ret = asoc_sprd_card_sub_parse_of(cpu, &dai_props->cpu_dai,
+    				  &dai_link->cpu_of_node,
+    				  &dai_link->cpu_dai_name, &cpu_args);
+    if (ret < 0) {
+    	pr_info("%s: parse for cpu failed (ret=%d), try to skip this link\n",
+    		__func__, ret);
+    	ret = -ENODEV; 
+    	goto dai_link_of_err;
+    }
 
     ret = asoc_sprd_card_sub_parse_of(codec, &dai_props->codec_dai,
     				  &dai_link->codec_of_node,
@@ -637,22 +641,30 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 	dev_dbg(dev, "is_fm_open_src=%u\n", priv->is_fm_open_src);
 
 	/* Single/Muti DAI link(s) & New style of DT node */
-	if (of_get_child_by_name(node, "sprd-audio-card,dai-link")) {
-		struct device_node *np = NULL;
-		int i = 0;
+    if (of_get_child_by_name(node, "sprd-audio-card,dai-link")) {
+    	struct device_node *np = NULL;
+    	int i = 0;
+    	int total_links = of_get_child_count(node);
 
-		for_each_child_of_node(node, np) {
-			dev_dbg(dev, "\tlink %d:\n", i);
-			ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
-			if (ret < 0) {
-				dev_err(dev,
-					"%s: Parsing dai link %d failed(%d)!\n",
-					__func__, i, ret);
-				of_node_put(np);
-				return ret;
-			}
-			i++;
-		}
+    	for_each_child_of_node(node, np) {
+    		dev_dbg(dev, "\tlink %d:\n", i);
+    		ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
+    		if (ret < 0) {
+    			/* 最后一个链路且 CPU 端解析失败时，直接跳过 */
+    			if (ret == -ENODEV && i == total_links - 1) {
+    				pr_info("%s: skip last link %d due to cpu parse failure\n",
+    					__func__, i);
+    				priv->snd_card.num_links--;
+    				break;
+    			}
+    			dev_err(dev,
+    				"%s: Parsing dai link %d failed(%d)!\n",
+    				__func__, i, ret);
+    			of_node_put(np);
+    			return ret;
+    		}
+    		i++;
+    	}
 	} else {
 		/* For single DAI link & old style of DT node */
 		ret = asoc_sprd_card_dai_link_of(node, priv, 0, true);
