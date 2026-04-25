@@ -1263,6 +1263,8 @@ static int eta6947_charger_probe(struct i2c_client *client,
 	INIT_DELAYED_WORK(&info->wdt_work,
 			  eta6947_charger_feed_watchdog_work);
 
+	dev_info(dev, "Hello!Do you want to eat 6947?SoraNeko is waiting for you!\n");
+
 	return 0;
 }
 
