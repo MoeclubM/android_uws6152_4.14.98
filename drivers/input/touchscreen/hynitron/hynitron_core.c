@@ -1953,10 +1953,10 @@ static int hyn_probe(struct i2c_client *client, const struct i2c_device_id *id)
                 HYN_INFO("Set pinctrl to hyn_irq_gpio successfully");
             }
         } else {
-            HYN_WARN("pinctrl state hyn_irq_gpio not found");
+            HYN_ERROR("pinctrl state hyn_irq_gpio not found");
         }
     } else {
-        HYN_WARN("No pinctrl available for device");
+        HYN_ERROR("No pinctrl available for device");
     }
 	hyn_ts_data_init(client); 
 	
