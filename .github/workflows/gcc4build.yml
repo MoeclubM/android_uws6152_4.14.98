@@ -49,6 +49,14 @@ jobs:
         run: |
           aarch64-linux-android-gcc --version
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
+          
+      # 测试纯文本消息，确认 Bot 与 Chat ID 正常（已通过）
+      - name: Test Telegram connection (text message)
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
+            -d "text=🔔 GitHub Actions: Build started." | tee /dev/stderr
+          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
 
       - name: Build kernel
         run: |
@@ -136,37 +144,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 测试纯文本消息（验证 Bot 与 Chat ID 正常）
-      - name: Test Telegram connection (text message)
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
-            -d "text=🔔 GitHub Actions: Build started." | tee /dev/stderr
-          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
-
-      # 发送内核文件（修复版：防止 curl 错误中断脚本，完整打印回显）
-      - name: Send kernel to Telegram (debug)
+      # 发送内核文件（修复版：复制到 /tmp 再上传，避免读取失败）
+      - name: Send kernel to Telegram
         id: telegram_send
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
           KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
         run: |
-          echo "Sending file: ${KERNEL_FILE}"
+          echo "Original file: ${KERNEL_FILE}"
           ls -lh "${KERNEL_FILE}"
 
-          # 先测试文件是否可读（可选）
-          if ! head -c 1 "${KERNEL_FILE}" > /dev/null 2>&1; then
-            echo "❌ Cannot read file: ${KERNEL_FILE}"
-            exit 1
-          fi
+          # 复制到 /tmp 确保可读
+          TMPFILE="/tmp/$(basename ${KERNEL_FILE})"
+          cp "${KERNEL_FILE}" "${TMPFILE}"
+          echo "Copied to: ${TMPFILE}"
 
-          # 使用 set +e 允许 curl 失败，但打印完整回显
           set +e
           curl -v -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
             -F "chat_id=${CHAT_ID}" \
-            -F "document=@${KERNEL_FILE}" \
-            -F "caption=✅ Finished! Kernel: ${KERNEL_FILE}" > /tmp/curl_response.txt 2>&1
+            -F "document=@${TMPFILE}" \
+            -F "caption=✅ Finished! Kernel: $(basename ${KERNEL_FILE})" > /tmp/curl_response.txt 2>&1
           CURL_EXIT=$?
           set -e
 
