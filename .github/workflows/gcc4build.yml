@@ -24,7 +24,6 @@ jobs:
           mkdir -p $HOME/toolchains
           cd $HOME/toolchains
 
-          # 只浅克隆指定分支，并仅检出工具链目录（避免下载整个 BSP 仓库）
           git clone --depth=1 --branch=W20.13.3 \
             --filter=blob:none --no-checkout \
             https://github.com/deadman96385/jingpad_android_bsp.git toolchain-tmp
@@ -33,16 +32,12 @@ jobs:
           git sparse-checkout set toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
           git checkout
 
-          # 将工具链移动到标准位置并清理临时仓库
           mv toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
              ../aarch64-linux-android-4.9
           cd ..
           rm -rf toolchain-tmp
 
-          # 确保可执行权限
           chmod -R a+x $HOME/toolchains/aarch64-linux-android-4.9/bin
-
-          # 添加到 PATH
           echo "$HOME/toolchains/aarch64-linux-android-4.9/bin" >> $GITHUB_PATH
 
       - name: Verify toolchain
@@ -55,17 +50,12 @@ jobs:
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
 
-          # 加载 defconfig
           make sprd_sharkl5_s100_defconfig
 
-          # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
-
-          # 禁用 EFI（避免 undefined reference to __efistub_secure_init）
           scripts/config --disable CONFIG_EFI
           scripts/config --disable CONFIG_EFI_STUB
 
-          # 彻底移除 yamltree 相关代码（解决旧内核与新版 dtc 兼容问题）
           sed -i '/yamltree\.o/d' scripts/dtc/Makefile
           sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
 
@@ -73,15 +63,11 @@ jobs:
           sed -i '/ifdef stackp-name/,/endif/{s/exit 1/true/}' Makefile
           sed -i '/ifdef stackp-check/,/endif/{s/exit 1/true/}' Makefile
         
-          # 强制刷新配置，确保改动生效
           make olddefconfig
 
-          # GCC 4.9 兼容性警告屏蔽
           KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds"
-        
           make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
 
-          # 编译并安装模块
           make modules 2>&1 | tee -a build.log
           make modules_install INSTALL_MOD_PATH=./modules_out 2>&1 | tee -a build.log
 
@@ -136,12 +122,15 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Send Release
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_TO }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          document: ${{ steps.locate.outputs.kernel_path }}
-          message: |
-            ✅ Finished！
-            Kernel_image: ${{ steps.locate.outputs.kernel_path }}
+      - name: Send to Telegram via curl
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_TO }}
+          KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
+        run: |
+          echo "Uploading ${KERNEL_FILE} to Telegram..."
+          curl -s -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${CHAT_ID}" \
+            -F "document=@${KERNEL_FILE}" \
+            -F "caption=✅ Finished! Kernel: ${KERNEL_FILE}" \
+            | tee /dev/stderr | grep -q '"ok":true' && echo "Success" || echo "Failed"
