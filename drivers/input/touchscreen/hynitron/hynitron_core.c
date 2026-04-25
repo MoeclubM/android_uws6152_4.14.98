@@ -23,6 +23,8 @@
 
 #include "hynitron_update_firmware.h"
 
+#include <linux/pinctrl/consumer.h>
+
 /*****************************************************************************
 Main control platform----spreadtrum
 {
@@ -79,7 +81,7 @@ MODULE_DEVICE_TABLE(i2c, hyn_tpd_id);
 static const struct of_device_id hyn_dt_match[] =
 {
     {.compatible = "hynitron,hyn_ts",},
-    {.compatible = "hy,92xx",},
+    {.compatible = "hyn,92xx",},
     {}
 };
 MODULE_DEVICE_TABLE(of, hyn_dt_match);
@@ -1464,36 +1466,38 @@ err_irq_gpio_dir:
 
 static int hyn_get_dt_coords(struct device *dev, char *name, struct hynitron_ts_platform_data *pdata)
 {
-	int ret = 0;
-	u32 coords[2] = { 0 };
-	struct property *prop;
-	struct device_node *np = dev->of_node;
-	int coords_size;
+    int ret = 0;
+    u32 coords[4] = { 0 };
+    struct property *prop;
+    struct device_node *np = dev->of_node;
+    int coords_size;
 
-	prop = of_find_property(np, name, NULL);
-	if (!prop)
-		return -EINVAL;
-	if (!prop->value)
-		return -ENODATA;
+    prop = of_find_property(np, name, NULL);
+    if (!prop)
+        return -EINVAL;
+    if (!prop->value)
+        return -ENODATA;
 
-	coords_size = prop->length / sizeof(u32);
-	if (coords_size != HYN_COORDS_ARR_SIZE) {
-		HYN_ERROR("invalid:%s, size:%d", name, coords_size);
-		return -EINVAL;
-	}
+    coords_size = prop->length / sizeof(u32);
+    if (coords_size == 4) {
+        ret = of_property_read_u32_array(np, name, coords, 4);
+        if (ret < 0)
+            return -ENODATA;
+        pdata->x_resolution = coords[2];
+        pdata->y_resolution = coords[3];
+    } else if (coords_size == 2) {
+        ret = of_property_read_u32_array(np, name, coords, 2);
+        if (ret < 0)
+            return -ENODATA;
+        pdata->x_resolution = coords[0];
+        pdata->y_resolution = coords[1];
+    } else {
+        HYN_ERROR("invalid:%s, size:%d", name, coords_size);
+        return -EINVAL;
+    }
 
-	ret = of_property_read_u32_array(np, name, coords, coords_size);
-	if (ret < 0) {
-		HYN_ERROR("Unable to read %s, please check dts", name);
-		pdata->x_resolution = HYN_X_DISPLAY_DEFAULT;
-		pdata->y_resolution = HYN_Y_DISPLAY_DEFAULT;
-		return -ENODATA;
-	}
-	pdata->x_resolution = coords[0];
-	pdata->y_resolution = coords[1];
-
-	HYN_INFO("display x(%d ) y(%d )", pdata->x_resolution, pdata->y_resolution);
-	return 0;
+    HYN_INFO("display x(%d) y(%d)", pdata->x_resolution, pdata->y_resolution);
+    return 0;
 }
 
 static int hyn_parse_dt(struct device *dev, struct hynitron_ts_platform_data *pdata)
@@ -1501,89 +1505,77 @@ static int hyn_parse_dt(struct device *dev, struct hynitron_ts_platform_data *pd
 	int ret = -1;
 	struct device_node *np = dev->of_node;
 	u32 temp_val = 0;
-	int i=0;
- 	const  struct of_device_id *match;
-	
+	int i = 0;
+	const struct of_device_id *match;
+
 	HYN_FUNC_ENTER();
 
-	match=of_match_device(of_match_ptr(hyn_dt_match),dev);
-	if(!match){
-		HYN_ERROR("DTS Unable to find matchv device.");
-		return ENODEV; 
+	match = of_match_device(of_match_ptr(hyn_dt_match), dev);
+	if (!match) {
+		HYN_ERROR("DTS Unable to find matching device.");
+		return -ENODEV;
 	}
-	ret = hyn_get_dt_coords(dev, "hynitron,display-coords", pdata);
-	if (ret < 0){
-		HYN_ERROR("DTS Unable to get display-coords");	
+
+	/* ===== 1. 分辨率 ===== */
+	/* 改为 "display-coords"，去掉 "hynitron," 前缀 */
+	ret = hyn_get_dt_coords(dev, "display-coords", pdata);
+	if (ret < 0) {
+		HYN_ERROR("DTS Unable to get display-coords");
 		return -1;
 	}
-	
-	/* key */
-	pdata->have_key= of_property_read_bool(np, "hynitron,have-key");
+
+	/* ===== 2. 按键  ===== */
+	pdata->have_key = of_property_read_bool(np, "have-key");
 	if (pdata->have_key) {
-		
-		hyn_ts_data->pdata->report_key_position=0;
-	
-		ret = of_property_read_u32(np, "hynitron,key-number", &pdata->max_key_num);
+		hyn_ts_data->pdata->report_key_position = 0;
+
+		ret = of_property_read_u32(np, "key-number", &pdata->max_key_num);
 		if (ret < 0)
 			HYN_ERROR("Key number undefined!");
 		else if (pdata->max_key_num > HYN_MAX_KEYS)
 			pdata->max_key_num = HYN_MAX_KEYS;
-		
-		ret = of_property_read_u32_array(np, "hynitron,key-code", pdata->key_code, HYN_MAX_KEYS);
+
+		ret = of_property_read_u32_array(np, "key-code", pdata->key_code, HYN_MAX_KEYS);
 		if (ret < 0)
 			HYN_ERROR("Key code undefined!");
-		
-		ret = of_property_read_u32_array(np, "hynitron,key-x-coord", pdata->key_x_coords, HYN_MAX_KEYS);
+
+		ret = of_property_read_u32_array(np, "key-x-coord", pdata->key_x_coords, HYN_MAX_KEYS);
 		if (ret < 0)
 			HYN_ERROR("Key X Coords undefined!");
 
-		ret = of_property_read_u32_array(np, "hynitron,key-y-coord", pdata->key_y_coords, HYN_MAX_KEYS);
+		ret = of_property_read_u32_array(np, "key-y-coord", pdata->key_y_coords, HYN_MAX_KEYS);
 		if (ret < 0)
 			HYN_ERROR("Key Y Coords undefined!");
 
-		for(i = 0 ;i < pdata->max_key_num; i++){
-			 HYN_DEBUG("KEY Number:%d, key_x_coords:%d, key_y_coords:%d, key_code:%d.\n",
-			 pdata->max_key_num,
-			 pdata->key_x_coords[i], pdata->key_y_coords[i],
-			 pdata->key_code[i]);
+		for (i = 0; i < pdata->max_key_num; i++) {
+			HYN_DEBUG("KEY Number:%d, key_x_coords:%d, key_y_coords:%d, key_code:%d.\n",
+				  pdata->max_key_num,
+				  pdata->key_x_coords[i], pdata->key_y_coords[i],
+				  pdata->key_code[i]);
 		}
 	}
-	/* reset, irq gpio info */
-	//pdata->reset_gpio = of_get_named_gpio(dev->of_node, "hynitron,reset-gpio", 0);
-    //pdata->irq_gpio = of_get_named_gpio(dev->of_node, "hynitron,irq-gpio", 0);	
-#if 0	
-	ret = of_property_read_u32(np, "hynitron,reset-gpio", &pdata->reset_gpio);
-	printk("reset_gpio_number=%d\n",pdata->reset_gpio);
-	if(ret){
-		printk("DTS Unable to get reset_gpio");
-	    return -1;
-	}
 
-	ret = of_property_read_u32(np, "hynitron,irq-gpio", &pdata->irq_gpio);
-	printk("irq_gpio_number=%d\n",pdata->irq_gpio);
-	if(ret){
-		printk("DTS Unable to get irq_gpio");
-	    return -1;
-	}
-#else	
-	pdata->reset_gpio = of_get_named_gpio_flags(np, "hynitron,reset-gpio", 0, &pdata->reset_gpio_flags);
-	if (pdata->reset_gpio < 0){
-		HYN_ERROR("DTS Unable to get reset_gpio");
+	/* ===== 3. GPIO ===== */
+	/* 改为 "reset-gpio" 和 "irq-gpio"，去掉 "hynitron," 前缀 */
+	pdata->reset_gpio = of_get_named_gpio_flags(np, "reset-gpio", 0, &pdata->reset_gpio_flags);
+	if (pdata->reset_gpio < 0) {
+		HYN_ERROR("DTS Unable to get reset-gpio");
 		return -1;
 	}
 
-	pdata->irq_gpio = of_get_named_gpio_flags(np, "hynitron,irq-gpio", 0, &pdata->irq_gpio_flags);
-	if (pdata->irq_gpio < 0){
-		HYN_ERROR("DTS Unable to get irq_gpio");
+	pdata->irq_gpio = of_get_named_gpio_flags(np, "irq-gpio", 0, &pdata->irq_gpio_flags);
+	if (pdata->irq_gpio < 0) {
+		HYN_ERROR("DTS Unable to get irq-gpio");
 		return -1;
 	}
-#endif
-	ret = of_property_read_u32(np, "hynitron,max-touch-number", &temp_val);
+
+	/* ===== 4. 最大触摸点数 ===== */
+	/* 改为 "max-touch-number"，去掉 "hynitron," 前缀 */
+	ret = of_property_read_u32(np, "max-touch-number", &temp_val);
 	if (ret < 0) {
 		HYN_ERROR("DTS Unable to get max-touch-number, please check dts");
 		pdata->max_touch_num = HYN_MAX_POINTS;
-		return -1;
-	}else{
+	} else {
 		if (temp_val < 2)
 			pdata->max_touch_num = 2;	/* max_touch_number must >= 2 */
 		else if (temp_val > HYN_MAX_POINTS)
@@ -1592,10 +1584,19 @@ static int hyn_parse_dt(struct device *dev, struct hynitron_ts_platform_data *pd
 			pdata->max_touch_num = temp_val;
 	}
 
-	HYN_DEBUG("DTS max touch number:%d, irq gpio:%d, reset gpio:%d", pdata->max_touch_num, pdata->irq_gpio, pdata->reset_gpio);
+	/* ===== 5. 坐标翻转/交换  ===== */
+	if (!of_property_read_u32(np, "pos-swap", &temp_val))
+		pdata->xy_exchange = (bool)temp_val;
+	if (!of_property_read_u32(np, "posx-reverse", &temp_val))
+		pdata->x_overturn = (bool)temp_val;
+	if (!of_property_read_u32(np, "posy-reverse", &temp_val))
+		pdata->y_overturn = (bool)temp_val;
+
+	HYN_DEBUG("DTS max touch number:%d, irq gpio:%d, reset gpio:%d",
+		  pdata->max_touch_num, pdata->irq_gpio, pdata->reset_gpio);
 
 	HYN_FUNC_EXIT();
-	return ret;
+	return 0;
 }
 void hyn_ts_data_init(struct i2c_client *client)
 {
@@ -1606,9 +1607,6 @@ void hyn_ts_data_init(struct i2c_client *client)
 	hyn_ts_data->config_chip_product_line =HYN_CHIP_PRODUCT_LINE_MUT_CAP;				
 	
 	hyn_ts_data->chip_ic_main_addr     =HYN_MAIN_IIC_ADDR_CONFIG;	
-	hyn_ts_data->pdata->x_overturn     =HYN_X_REVERT;
-	hyn_ts_data->pdata->y_overturn     =HYN_Y_REVERT;
-	hyn_ts_data->pdata->xy_exchange	   =HYN_XY_EXCHANGE;
 	hyn_ts_data->work_mode 			   =HYN_WORK_MODE_NORMAL;	
 	hyn_ts_data->pdata->max_touch_num  =HYN_MAX_POINTS;
 
@@ -1630,7 +1628,6 @@ void hyn_ts_data_init(struct i2c_client *client)
 
 	if(hyn_ts_data->chip_ic_main_addr!=client->addr){		
 		hyn_ts_data->chip_ic_main_addr=HYN_MAIN_IIC_ADDR_CONFIG;
-		client->addr						=HYN_MAIN_IIC_ADDR_CONFIG;	
 		HYN_DEBUG("client addr is different,now use default addr,please confirm. client->addr=0x%x, default iic addr=0x%x.\r\n",client->addr,HYN_MAIN_IIC_ADDR_CONFIG);
 	}
 		
@@ -1943,6 +1940,24 @@ static int hyn_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		kfree(ts_data);
 		return -1;
 	}	
+	
+	 /* ===== 第5步：设置pinctrl状态 ===== */
+    ts_data->ts_pinctrl = devm_pinctrl_get(&client->dev);
+    if (!IS_ERR(ts_data->ts_pinctrl)) {
+        ts_data->gpio_state_active = pinctrl_lookup_state(ts_data->ts_pinctrl, "hyn_irq_gpio");
+        if (!IS_ERR(ts_data->gpio_state_active)) {
+            ret = pinctrl_select_state(ts_data->ts_pinctrl, ts_data->gpio_state_active);
+            if (ret < 0) {
+                HYN_ERROR("Failed to select pinctrl state hyn_irq_gpio, ret=%d", ret);
+            } else {
+                HYN_INFO("Set pinctrl to hyn_irq_gpio successfully");
+            }
+        } else {
+            HYN_WARN("pinctrl state hyn_irq_gpio not found");
+        }
+    } else {
+        HYN_WARN("No pinctrl available for device");
+    }
 	hyn_ts_data_init(client); 
 	
 	mdelay(60);
