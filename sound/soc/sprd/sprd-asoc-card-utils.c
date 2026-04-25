@@ -655,6 +655,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
     				pr_info("%s: skip last link %d due to cpu parse failure\n",
     					__func__, i);
     				priv->snd_card.num_links--;
+    				ret = 0;
     				break;
     			}
     			dev_err(dev,
