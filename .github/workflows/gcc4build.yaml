@@ -1,0 +1,180 @@
+name: Build Pure Kernel (gcc 4.9)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          ref: 'test'
+          submodules: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y git make bc bison flex libssl-dev build-essential \
+                              libyaml-dev
+
+      - name: Download and setup GCC 4.9 toolchain
+        run: |
+          mkdir -p $HOME/toolchains
+          cd $HOME/toolchains
+
+          # 只浅克隆指定分支，并仅检出工具链目录（避免下载整个 BSP 仓库）
+          git clone --depth=1 --branch=W20.13.3 \
+            --filter=blob:none --no-checkout \
+            https://github.com/deadman96385/jingpad_android_bsp.git toolchain-tmp
+          cd toolchain-tmp
+          git sparse-checkout init --cone
+          git sparse-checkout set toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
+          git checkout
+
+          # 将工具链移动到标准位置并清理临时仓库
+          mv toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
+             ../aarch64-linux-android-4.9
+          cd ..
+          rm -rf toolchain-tmp
+
+          # 确保可执行权限
+          chmod -R a+x $HOME/toolchains/aarch64-linux-android-4.9/bin
+
+          # 添加到 PATH
+          echo "$HOME/toolchains/aarch64-linux-android-4.9/bin" >> $GITHUB_PATH
+
+      - name: Verify toolchain
+        run: |
+          aarch64-linux-android-gcc --version
+          aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
+          
+      # 测试纯文本消息，确认 Bot 与 Chat ID 正常（已通过）
+      - name: Test Telegram connection (text message)
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
+            -d "text=🔔 GitHub Actions: Build started." | tee /dev/stderr
+          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
+
+      - name: Build kernel
+        run: |
+          export ARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-android-
+
+          # 加载 defconfig
+          make sprd_sharkl5_s100_defconfig
+
+          # 禁用 appended dtb（生成纯内核）
+          scripts/config --disable CONFIG_APPENDED_DTB
+
+          # 禁用 EFI（避免 undefined reference to __efistub_secure_init）
+          scripts/config --disable CONFIG_EFI
+          scripts/config --disable CONFIG_EFI_STUB
+
+          # 彻底移除 yamltree 相关代码（解决旧内核与新版 dtc 兼容问题）
+          sed -i '/yamltree\.o/d' scripts/dtc/Makefile
+          sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
+
+          sed -i '/ifdef CONFIG_CC_STACKPROTECTOR_STRONG/{n;s/stackp-flag :=.*/stackp-flag := -fstack-protector-strong/}' Makefile
+          sed -i '/ifdef stackp-name/,/endif/{s/exit 1/true/}' Makefile
+          sed -i '/ifdef stackp-check/,/endif/{s/exit 1/true/}' Makefile
+        
+          # 强制刷新配置，确保改动生效
+          make olddefconfig
+
+          # GCC 4.9 兼容性警告屏蔽
+          KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds"
+        
+          make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
+
+          # 编译并安装模块
+          make modules 2>&1 | tee -a build.log
+          make modules_install INSTALL_MOD_PATH=./modules_out 2>&1 | tee -a build.log
+
+      - name: Locate pure kernel image
+        id: locate
+        run: |
+          if [ -f arch/arm64/boot/Image.gz ]; then
+            echo "kernel_path=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
+          elif [ -f arch/arm64/boot/Image ]; then
+            echo "kernel_path=arch/arm64/boot/Image" >> $GITHUB_OUTPUT
+          else
+            echo "No kernel image found!"
+            exit 1
+          fi
+
+      - name: Package modules
+        run: |
+          KERNEL_RELEASE=$(make -s kernelrelease 2>/dev/null | grep -v '^#' | tail -1)
+          if [ -z "$KERNEL_RELEASE" ]; then
+            echo "Error: Could not get kernel release"
+            exit 1
+          fi
+          echo "Kernel release: $KERNEL_RELEASE"
+
+          MODULES_DIR="modules_out/lib/modules/$KERNEL_RELEASE"
+          if [ ! -d "$MODULES_DIR" ]; then
+            echo "Error: Modules directory not found at $MODULES_DIR"
+            exit 1
+          fi
+
+          cd "$MODULES_DIR"
+          rm -f source build
+          tar -czf ../../../../modules.tar.gz .
+          zip -r ../../../../modules.zip .
+          cd ../../../..
+          ls -lh modules.tar.gz modules.zip
+
+      - name: Create Release and Upload Artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: 1.0
+          name: testbuild
+          files: |
+            ${{ steps.locate.outputs.kernel_path }}
+            modules.tar.gz
+            modules.zip
+            build.log
+            System.map
+            Module.symvers
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # 发送内核文件（修复版：复制到 /tmp 再上传，避免读取失败）
+      - name: Send kernel to Telegram
+        id: telegram_send
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_TO }}
+          KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
+        run: |
+          echo "Original file: ${KERNEL_FILE}"
+          ls -lh "${KERNEL_FILE}"
+
+          # 复制到 /tmp 确保可读
+          TMPFILE="/tmp/$(basename ${KERNEL_FILE})"
+          cp "${KERNEL_FILE}" "${TMPFILE}"
+          echo "Copied to: ${TMPFILE}"
+
+          set +e
+          curl -v -X POST "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${CHAT_ID}" \
+            -F "document=@${TMPFILE}" \
+            -F "caption=✅ Finished! Kernel: $(basename ${KERNEL_FILE})" > /tmp/curl_response.txt 2>&1
+          CURL_EXIT=$?
+          set -e
+
+          echo "========== API Response =========="
+          cat /tmp/curl_response.txt
+          echo "========== End of Response ========"
+
+          if grep -q '"ok":true' /tmp/curl_response.txt; then
+            echo "✅ File sent successfully!"
+          else
+            echo "❌ Send failed (curl exit code: ${CURL_EXIT}). Check the response above."
+            exit 1
+          fi
