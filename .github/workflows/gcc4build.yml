@@ -23,8 +23,6 @@ jobs:
         run: |
           mkdir -p $HOME/toolchains
           cd $HOME/toolchains
-
-          # 只浅克隆指定分支，并仅检出工具链目录（避免下载整个 BSP 仓库）
           git clone --depth=1 --branch=W20.13.3 \
             --filter=blob:none --no-checkout \
             https://github.com/deadman96385/jingpad_android_bsp.git toolchain-tmp
@@ -32,17 +30,11 @@ jobs:
           git sparse-checkout init --cone
           git sparse-checkout set toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9
           git checkout
-
-          # 将工具链移动到标准位置并清理临时仓库
           mv toolchain/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 \
              ../aarch64-linux-android-4.9
           cd ..
           rm -rf toolchain-tmp
-
-          # 确保可执行权限
           chmod -R a+x $HOME/toolchains/aarch64-linux-android-4.9/bin
-
-          # 添加到 PATH
           echo "$HOME/toolchains/aarch64-linux-android-4.9/bin" >> $GITHUB_PATH
 
       - name: Verify toolchain
@@ -50,38 +42,30 @@ jobs:
           aarch64-linux-android-gcc --version
           aarch64-linux-android-gcc -fstack-protector-strong -c -x c /dev/null -o /dev/null
 
+      # 发送文本消息（增加了时间戳）
+      - name: Test Telegram connection (text message)
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
+            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
+            -d "text=🔔 GitHub Actions: Build started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee /dev/stderr
+          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
+
       - name: Build kernel
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
-
-          # 加载 defconfig
           make sprd_sharkl5_s100_defconfig
-
-          # 禁用 appended dtb（生成纯内核）
           scripts/config --disable CONFIG_APPENDED_DTB
-
-          # 禁用 EFI（避免 undefined reference to __efistub_secure_init）
           scripts/config --disable CONFIG_EFI
           scripts/config --disable CONFIG_EFI_STUB
-
-          # 彻底移除 yamltree 相关代码（解决旧内核与新版 dtc 兼容问题）
           sed -i '/yamltree\.o/d' scripts/dtc/Makefile
           sed -i 's/dt_to_yaml(/\/\/ dt_to_yaml(/g' scripts/dtc/dtc.c
-
           sed -i '/ifdef CONFIG_CC_STACKPROTECTOR_STRONG/{n;s/stackp-flag :=.*/stackp-flag := -fstack-protector-strong/}' Makefile
           sed -i '/ifdef stackp-name/,/endif/{s/exit 1/true/}' Makefile
           sed -i '/ifdef stackp-check/,/endif/{s/exit 1/true/}' Makefile
-        
-          # 强制刷新配置，确保改动生效
           make olddefconfig
-
-          # GCC 4.9 兼容性警告屏蔽
           KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds"
-        
           make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
-
-          # 编译并安装模块
           make modules 2>&1 | tee -a build.log
           make modules_install INSTALL_MOD_PATH=./modules_out 2>&1 | tee -a build.log
 
@@ -105,13 +89,14 @@ jobs:
             exit 1
           fi
           echo "Kernel release: $KERNEL_RELEASE"
+          
+          echo "KERNEL_RELEASE=$(echo $KERNEL_RELEASE | xargs)" >> $GITHUB_ENV
 
           MODULES_DIR="modules_out/lib/modules/$KERNEL_RELEASE"
           if [ ! -d "$MODULES_DIR" ]; then
             echo "Error: Modules directory not found at $MODULES_DIR"
             exit 1
           fi
-
           cd "$MODULES_DIR"
           rm -f source build
           tar -czf ../../../../modules.tar.gz .
@@ -136,44 +121,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 测试纯文本消息（已验证成功）
-      - name: Test Telegram connection (text message)
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage" \
-            -d "chat_id=${{ secrets.TELEGRAM_TO }}" \
-            -d "text=🔔 GitHub Actions: Build started." | tee /dev/stderr
-          echo "If the message above shows 'ok:true', your bot can send messages to the chat."
-
-      # === 用 Python 发送内核文件（可靠替代 curl） ===
       - name: Send kernel to Telegram (Python)
         id: telegram_send
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
           KERNEL_FILE: ${{ steps.locate.outputs.kernel_path }}
-        run: |
-          python3 -c "
-          import requests, os, sys
-
-          bot_token = os.environ['BOT_TOKEN']
-          chat_id = os.environ['CHAT_ID']
-          kernel_file = os.environ['KERNEL_FILE']
-
-          if not os.path.exists(kernel_file):
-              print(f'❌ File not found: {kernel_file}')
-              sys.exit(1)
-
-          print(f'📤 Sending {kernel_file} ({os.path.getsize(kernel_file)} bytes)...')
-          url = f'https://api.telegram.org/bot{bot_token}/sendDocument'
-          with open(kernel_file, 'rb') as f:
-              files = {'document': f}
-              data = {'chat_id': chat_id, 'caption': f'✅ Finished! Kernel: {os.path.basename(kernel_file)}'}
-              resp = requests.post(url, data=data, files=files)
-          print(f'Response: {resp.text}')
-          if resp.ok and resp.json().get('ok'):
-              print('✅ File sent successfully!')
-          else:
-              print('❌ Failed to send file.')
-              sys.exit(1)
-          "
-          echo "Done."
+          KERNEL_RELE
