@@ -24,8 +24,6 @@
 #include <uapi/linux/usb/charger.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
-#include <linux/io.h>
-#include <linux/printk.h>
 
 #define ETA6947_REG_0					0x0
 #define ETA6947_REG_1					0x1
@@ -700,22 +698,6 @@ static int eta6947_charger_set_status(struct eta6947_charger_info *info, int val
 	return ret;
 }
 
-static void steal_oled_init_seq(void)
-{
-    void __iomem *lcd_data;
-    
-    lcd_data = ioremap(0x9eb0c000, 1024);
-    if (lcd_data) {
-        pr_err("\n\n================== BINGO: OLED INIT SEQ START ==================\n");
-        // 把内存里的数据以 16 进制格式疯狂打印到 dmesg 里
-        print_hex_dump(KERN_ERR, "OLED_SEQ: ", DUMP_PREFIX_OFFSET, 16, 1, lcd_data, 1024, true);
-        pr_err("================== BINGO: OLED INIT SEQ END ==================\n\n");
-        iounmap(lcd_data);
-    } else {
-        pr_err(">>>>>> [HACK] ioremap FAILED!\n");
-    }
-}
-
 static void eta6947_charger_work(struct work_struct *data)
 {
 	struct eta6947_charger_info *info =
@@ -1283,8 +1265,6 @@ static int eta6947_charger_probe(struct i2c_client *client,
 
 	dev_info(dev, "Hello!Do you want to eat 6947?SoraNeko is waiting for you!\n");
 
-	steal_oled_init_seq();
-    
 	return 0;
 }
 
