@@ -667,6 +667,9 @@ static int sprd_backlight_set_brightness(struct backlight_device *bdev)
 	int level, brightness;
 	struct sprd_backlight *backlight = bl_get_data(bdev);
 	struct sprd_panel *panel = backlight->panel;
+	
+	if (!panel || !panel->slave)
+		return 0;
 
 	mutex_lock(&panel_lock);
 	if (!panel->is_enabled) {
@@ -718,6 +721,12 @@ static int sprd_backlight_init(struct sprd_panel *panel)
 			sizeof(struct sprd_backlight), GFP_KERNEL);
 	if (!backlight)
 		return -ENOMEM;
+	
+	backlight->panel = panel;
+
+	backlight->bdev = devm_backlight_device_register(&panel->dev,
+			"sprd_backlight", &panel->dev, backlight,
+			&sprd_backlight_ops, NULL);
 
 	backlight->bdev = devm_backlight_device_register(&panel->dev,
 			"sprd_backlight", &panel->dev, backlight,
@@ -777,7 +786,7 @@ if (p) {
 		backlight->max_level = 255;
 
 	backlight->bdev->props.max_brightness = 255;
-	backlight->panel = panel;
+	
 	panel->backlight = backlight->bdev;
 
 	DRM_INFO("%s() ok\n", __func__);
