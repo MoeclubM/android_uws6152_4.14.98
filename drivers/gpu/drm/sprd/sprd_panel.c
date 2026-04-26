@@ -869,7 +869,7 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 	}
 	panel->slave = slave;
 
-	sprd_panel_sysfs_init(&panel->dev);
+	// sprd_panel_sysfs_init(&panel->dev);
 	mipi_dsi_set_drvdata(slave, panel);
 
 	ret = sprd_backlight_init(panel);
