@@ -649,25 +649,21 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
         int total_links = of_get_child_count(dai_container);
 
         for_each_child_of_node(dai_container, np) {
-            dev_dbg(dev, "\tlink %d:\n", i);
-            ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
-            if (ret < 0) {
-                /* 最后一个链路且 CPU 端解析失败时，直接跳过 */
-                if (ret == -ENODEV && i == total_links - 1) {
-                    pr_info("%s: skip last link %d due to cpu parse failure\n",
-                        __func__, i);
-                    priv->snd_card.num_links--;
-                    ret = 0;
-                    break;
-                }
-                dev_err(dev,
-                    "%s: Parsing dai link %d failed(%d)!\n",
-                    __func__, i, ret);
-                of_node_put(np);
-                return ret;
-            }
-            i++;
-        }
+			dev_dbg(dev, "\tlink %d:\n", i);
+			ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
+			if (ret == -ENODEV) {
+				pr_info("%s: skip link %d (cpu not available)\n", __func__, i);
+				priv->snd_card.num_links--;
+				total_links--;
+				continue;
+			} else if (ret < 0) {
+				dev_err(dev, "%s: Parsing dai link %d failed(%d)!\n",
+						__func__, i, ret);
+				of_node_put(np);
+				return ret;
+			}
+			i++;
+		}
     } else {
         /* For single DAI link & old style of DT node */
         ret = asoc_sprd_card_dai_link_of(node, priv, 0, true);
@@ -679,7 +675,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 	if (ret == 0)
 		priv->codec_type = val;
 
-	if (!priv->snd_card.name)
+	if (!priv->snd_card.name && priv->snd_card.num_links > 0)
 		priv->snd_card.name = priv->snd_card.dai_link->name;
 
 	ret = sprd_asoc_card_parse_ext_hook(dev, &priv->ext_hook);
