@@ -145,6 +145,8 @@ static int sprd_panel_unprepare(struct drm_panel *p)
 	}
 
 	regulator_disable(panel->supply);
+	
+	DRM_INFO("[PANEL] unprepare done\n");
 
 	return 0;
 }
@@ -181,7 +183,8 @@ static int sprd_panel_prepare(struct drm_panel *p)
 		gpiod_direction_output(panel->info.avdd_gpio, 1);
 		mdelay(5);
 	}
-
+	
+    DRM_INFO("[PANEL] prepare done\n");
 	return 0;
 }
 
@@ -217,6 +220,8 @@ static int sprd_panel_disable(struct drm_panel *p)
 
 	panel->is_enabled = false;
 	mutex_unlock(&panel_lock);
+	
+	DRM_INFO("[PANEL] disable done\n");
 
 	return 0;
 }
@@ -246,6 +251,8 @@ static int sprd_panel_enable(struct drm_panel *p)
 
 	panel->is_enabled = true;
 	mutex_unlock(&panel_lock);
+	
+	DRM_INFO("[PANEL] enable done\n");
 
 	return 0;
 }
@@ -636,6 +643,18 @@ static int sprd_panel_parse_dt(struct device_node *np, struct sprd_panel *panel)
 
 	info->mode.vrefresh = drm_mode_vrefresh(&info->mode);
 	of_get_buildin_modes(info, lcd_node);
+	DRM_INFO("[PANEL] lcd node: %s\n", lcd_node->name);
+    DRM_INFO("[PANEL] lanes=%d, format=%d, mode_flags=%d\n",
+             info->lanes, info->format, info->mode_flags);
+    DRM_INFO("[PANEL] resolution=%dx%d\n",
+             info->mode.hdisplay, info->mode.vdisplay);
+    DRM_INFO("[PANEL] width_mm=%d, height_mm=%d\n",
+             info->mode.width_mm, info->mode.height_mm);
+    if (info->cmds[CMD_CODE_INIT])
+        DRM_INFO("[PANEL] init-command size=%d\n",
+                 info->cmds_len[CMD_CODE_INIT]);
+    else
+        DRM_WARN("[PANEL] no init-command found\n");
 
 	/* Parse backlight related properties */
 	rc = of_property_read_u32(lcd_node, "sprd,max-brightness", &val);
@@ -678,10 +697,11 @@ static int sprd_backlight_set_brightness(struct backlight_device *bdev)
 		return -ENXIO;
 	}
 
-	brightness = bdev->props.brightness;
-	level = brightness * backlight->max_level / 255;
-
-	DRM_INFO("%s level: %d\n", __func__, level);
+    brightness = bdev->props.brightness;
+    level = brightness * backlight->max_level / 255;
+    
+    DRM_INFO("[BACKLIGHT] brightness=%d -> level=%d (cmds_total=%d)\n",
+             brightness, level, backlight->cmds_total);
 
 	if (backlight->cmds_total == 1) {
 		backlight->cmds[0]->payload[1] = level;
@@ -701,51 +721,52 @@ static int sprd_backlight_set_brightness(struct backlight_device *bdev)
 static const struct backlight_ops sprd_backlight_ops = {
 	.update_status = sprd_backlight_set_brightness,
 };
-
 static int sprd_backlight_init(struct sprd_panel *panel)
 {
-	struct sprd_backlight *backlight;
-	struct device_node *bl_node;
-	struct panel_info *info = &panel->info;
-	const void *p;
-	int bytes, rc;
-	u32 temp;
+    struct sprd_backlight *backlight;
+    struct device_node *bl_node;
+    struct panel_info *info = &panel->info;
+    const void *p;
+    int bytes, rc;
+    u32 temp;
 
-	bl_node = of_get_child_by_name(info->of_node, "backlight");
-	if (!bl_node)
-		bl_node = of_get_child_by_name(info->of_node, "oled-backlight");
-	if (!bl_node)
-		return 0;
+    DRM_INFO("[BACKLIGHT] start init\n");
+ 
+    bl_node = of_get_child_by_name(info->of_node, "backlight");
+    if (!bl_node)
+        bl_node = of_get_child_by_name(info->of_node, "oled-backlight");
+    if (!bl_node) {
+        DRM_INFO("[BACKLIGHT] no backlight node, skip\n");
+        return 0;
+    }
+    DRM_INFO("[BACKLIGHT] found node: %s\n", bl_node->name);
+    
+    backlight = devm_kzalloc(&panel->dev,
+                             sizeof(struct sprd_backlight), GFP_KERNEL);
+    if (!backlight)
+        return -ENOMEM;
 
-	backlight = devm_kzalloc(&panel->dev,
-			sizeof(struct sprd_backlight), GFP_KERNEL);
-	if (!backlight)
-		return -ENOMEM;
-	
-	backlight->panel = panel;
+    backlight->panel = panel;
 
-	backlight->bdev = devm_backlight_device_register(&panel->dev,
-			"sprd_backlight", &panel->dev, backlight,
-			&sprd_backlight_ops, NULL);
-	if (IS_ERR(backlight->bdev)) {
-		DRM_ERROR("failed to register backlight ops\n");
-		return PTR_ERR(backlight->bdev);
-	}
+    /* 获取 brightness-levels 属性 */
+    p = of_get_property(bl_node, "brightness-levels", &bytes);
+    if (!p) {
+        DRM_ERROR("[BACKLIGHT] no brightness-levels property\n");
+        return -EINVAL;
+    }
+    DRM_INFO("[BACKLIGHT] brightness-levels size = %d bytes\n", bytes);
 
-p = of_get_property(bl_node, "brightness-levels", &bytes);
-if (p) {
-    {
-        const u8 *data = p;
-        int total_bytes = bytes;
-        int cmd_len_total = 6;  /* type(1) + wait(1) + wc_h(1) + wc_l(1) + payload(2) */
-        int num_levels;
+    /*
+     * 兼容两种格式：
+     * 1) 如果总长度是 6 的倍数，按每个亮度级别 6 字节命令解析，
+     *    存入 backlight->cmds 数组（你修改后的逻辑）
+     * 2) 如果长度不是 6 的倍数（例如 2048），则当作一整个命令序列，
+     *    只保存一个命令，并在调节背光时通过修改 payload[1] 来改变亮度
+     */
+    if (bytes % 6 == 0) {
+        int cmd_len = 6;
+        int num_levels = bytes / 6;
         int i;
-
-        if (total_bytes % cmd_len_total != 0) {
-            DRM_ERROR("brightness-levels length not multiple of 6\n");
-            return -EINVAL;
-        }
-        num_levels = total_bytes / cmd_len_total;
 
         if (num_levels > 255) {
             DRM_ERROR("too many brightness levels: %d\n", num_levels);
@@ -754,40 +775,57 @@ if (p) {
 
         for (i = 0; i < num_levels; i++) {
             struct dsi_cmd_desc *cmd = devm_kzalloc(&panel->dev,
-                                                    sizeof(struct dsi_cmd_desc) + 2,
-                                                    GFP_KERNEL);
+                                sizeof(struct dsi_cmd_desc) + 2, GFP_KERNEL);
             if (!cmd)
                 return -ENOMEM;
-
-            memcpy(cmd, data + i * cmd_len_total, cmd_len_total);
-            backlight->cmds[i] = cmd; 
+            memcpy(cmd, p + i * cmd_len, cmd_len);
+            backlight->cmds[i] = cmd;
         }
-
         backlight->cmds_total = num_levels;
-        backlight->cmd_len = cmd_len_total;
+        backlight->cmd_len = cmd_len;
+    } else {
+        /*
+         * 非 6 对齐情况：采用原始驱动的策略，将整个属性作为一个命令。
+         * 注意：原始驱动只是存了指针，但在这里需要构造 backlight->cmds[0]，
+         *       让 sprd_backlight_set_brightness 中的 cmds_total==1 分支能工作。
+         */
+        struct dsi_cmd_desc *cmd = devm_kzalloc(&panel->dev,
+            sizeof(struct dsi_cmd_desc) + bytes, GFP_KERNEL);  
+        if (!cmd)
+            return -ENOMEM;
+
+        memcpy(cmd, p, bytes);
+        backlight->cmds[0] = cmd;
+        backlight->cmds_total = 1;
+        backlight->cmd_len = bytes;   /* 整个命令的长度 */
     }
-} else
-    DRM_ERROR("can't find brightness-levels property\n");
 
-	rc = of_property_read_u32(bl_node, "default-brightness-level", &temp);
-	if (!rc)
-		backlight->bdev->props.brightness = temp;
-	else
-		backlight->bdev->props.brightness = 25;
+    /* 这里注册 backlight 设备，避免注册后再失败留下残废 sysfs 节点 */
+    backlight->bdev = devm_backlight_device_register(&panel->dev,
+            "sprd_backlight", &panel->dev, backlight,
+            &sprd_backlight_ops, NULL);
+    if (IS_ERR(backlight->bdev)) {
+        DRM_ERROR("failed to register backlight ops\n");
+        return PTR_ERR(backlight->bdev);
+    }
 
-	rc = of_property_read_u32(bl_node, "sprd,max-level", &temp);
-	if (!rc)
-		backlight->max_level = temp;
-	else
-		backlight->max_level = 255;
+    rc = of_property_read_u32(bl_node, "default-brightness-level", &temp);
+    if (!rc)
+        backlight->bdev->props.brightness = temp;
+    else
+        backlight->bdev->props.brightness = 25;
 
-	backlight->bdev->props.max_brightness = 255;
-	
-	panel->backlight = backlight->bdev;
+    rc = of_property_read_u32(bl_node, "sprd,max-level", &temp);
+    if (!rc)
+        backlight->max_level = temp;
+    else
+        backlight->max_level = 255;
 
-	DRM_INFO("%s() ok\n", __func__);
+    backlight->bdev->props.max_brightness = 255;
+    panel->backlight = backlight->bdev;
 
-	return 0;
+    DRM_INFO("%s() Neko wants to eat your screen!\n", __func__);
+    return 0;
 }
 
 static int sprd_panel_probe(struct mipi_dsi_device *slave)
@@ -891,7 +929,7 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 		panel->esd_work_pending = true;
 	}
 
-	DRM_INFO("panel driver probe success\n");
+	DRM_INFO("My coffee is cold....\n");
 
 	return 0;
 }
