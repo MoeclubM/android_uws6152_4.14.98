@@ -647,7 +647,6 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
     if (dai_container) {
         struct device_node *np = NULL;
         int i = 0;
-        int total_links = of_get_child_count(dai_container);
     
         for_each_child_of_node(dai_container, np) {
             dev_dbg(dev, "\tlink %d:\n", i);
@@ -676,7 +675,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
         int direct_links = 0;
         struct device_node *child;
         for_each_child_of_node(node, child) {
-            if (of_node_name_eq(child, "sprd-audio-card,dai-link"))
+            if (strcmp(child->name, "sprd-audio-card,dai-link") == 0)
                 direct_links++;
         }
     
@@ -685,8 +684,8 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
             int i = 0;
             struct device_node *np;
             for_each_child_of_node(node, np) {
-                if (!of_node_name_eq(np, "sprd-audio-card,dai-link"))
-                    continue;
+                if (strcmp(np->name, "sprd-audio-card,dai-link") != 0)
+                  continue;
     
                 dev_dbg(dev, "\tlink %d:\n", i);
                 ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
@@ -775,6 +774,7 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
 	/* Get the number of DAI links */
     if (np) {
         struct device_node *dai_container;
+        struct device_node *child;
     
         dai_container = of_get_child_by_name(np, "sprd-audio-card,dai-link");
         if (dai_container) {
@@ -783,9 +783,8 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
         } else {
             /* 没有容器，尝试统计直接挂载的 sprd-audio-card,dai-link 节点 */
             num_links = 0;
-            struct device_node *child;
             for_each_child_of_node(np, child) {
-                if (of_node_name_eq(child, "sprd-audio-card,dai-link"))
+                if (strcmp(child->name, "sprd-audio-card,dai-link") == 0)
                     num_links++;
             }
             if (num_links == 0)
