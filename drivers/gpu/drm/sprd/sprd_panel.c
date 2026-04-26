@@ -727,6 +727,7 @@ static int sprd_backlight_init(struct sprd_panel *panel)
     struct device_node *bl_node;
     struct panel_info *info = &panel->info;
     const void *p;
+    struct dsi_cmd_desc *cmd;
     int bytes, rc;
     u32 temp;
 
@@ -755,50 +756,24 @@ static int sprd_backlight_init(struct sprd_panel *panel)
         return -EINVAL;
     }
     DRM_INFO("[BACKLIGHT] brightness-levels size = %d bytes\n", bytes);
-
-    /*
-     * 兼容两种格式：
-     * 1) 如果总长度是 6 的倍数，按每个亮度级别 6 字节命令解析，
-     *    存入 backlight->cmds 数组（你修改后的逻辑）
-     * 2) 如果长度不是 6 的倍数（例如 2048），则当作一整个命令序列，
-     *    只保存一个命令，并在调节背光时通过修改 payload[1] 来改变亮度
-     */
-    if (bytes % 6 == 0) {
-        int cmd_len = 6;
-        int num_levels = bytes / 6;
-        int i;
-
-        if (num_levels > 255) {
-            DRM_ERROR("too many brightness levels: %d\n", num_levels);
-            return -EINVAL;
-        }
-
-        for (i = 0; i < num_levels; i++) {
-            struct dsi_cmd_desc *cmd = devm_kzalloc(&panel->dev,
-                                sizeof(struct dsi_cmd_desc) + 2, GFP_KERNEL);
-            if (!cmd)
-                return -ENOMEM;
-            memcpy(cmd, p + i * cmd_len, cmd_len);
-            backlight->cmds[i] = cmd;
-        }
-        backlight->cmds_total = num_levels;
-        backlight->cmd_len = cmd_len;
-    } else {
-        /*
-         * 非 6 对齐情况：采用原始驱动的策略，将整个属性作为一个命令。
-         * 注意：原始驱动只是存了指针，但在这里需要构造 backlight->cmds[0]，
-         *       让 sprd_backlight_set_brightness 中的 cmds_total==1 分支能工作。
-         */
-        struct dsi_cmd_desc *cmd = devm_kzalloc(&panel->dev,
-            sizeof(struct dsi_cmd_desc) + bytes, GFP_KERNEL);  
-        if (!cmd)
-            return -ENOMEM;
-
-        memcpy(cmd, p, bytes);
-        backlight->cmds[0] = cmd;
-        backlight->cmds_total = 1;
-        backlight->cmd_len = bytes;   /* 整个命令的长度 */
-    }
+    
+    // 无论 DTS 中是什么数据，统一构造一条标准亮度命令
+    cmd = devm_kzalloc(&panel->dev,
+        sizeof(struct dsi_cmd_desc) + 2, GFP_KERNEL);
+    if (!cmd)
+        return -ENOMEM;
+    
+    cmd->data_type = 0x15;
+    cmd->wait = 0;
+    cmd->wc_h = 0;
+    cmd->wc_l = 2;
+    cmd->payload[0] = 0x51;
+    cmd->payload[1] = 0;
+    
+    backlight->cmds[0] = cmd;
+    backlight->cmds_total = 1;
+    backlight->cmd_len = 6;
+    
 
     /* 这里注册 backlight 设备，避免注册后再失败留下残废 sysfs 节点 */
     backlight->bdev = devm_backlight_device_register(&panel->dev,
@@ -970,6 +945,6 @@ static struct mipi_dsi_driver sprd_panel_driver = {
 };
 module_mipi_dsi_driver(sprd_panel_driver);
 
-MODULE_AUTHOR("Leon He <leon.he@unisoc.com>");
-MODULE_DESCRIPTION("SPRD MIPI DSI Panel Driver");
+MODULE_AUTHOR("ZeroDreamCat <neko@0w0.cafe>");
+MODULE_DESCRIPTION("ICN3312 Simple Driver");
 MODULE_LICENSE("GPL v2");
