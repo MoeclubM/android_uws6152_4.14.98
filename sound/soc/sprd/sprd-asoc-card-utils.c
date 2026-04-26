@@ -641,34 +641,77 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 		priv->is_fm_open_src = val;
 	dev_dbg(dev, "is_fm_open_src=%u\n", priv->is_fm_open_src);
 
-	/* Single/Muti DAI link(s) & New style of DT node */
+    /* Single/Muti DAI link(s) & New style of DT node */
     dai_container = of_get_child_by_name(node, "sprd-audio-card,dai-link");
+    
     if (dai_container) {
         struct device_node *np = NULL;
         int i = 0;
         int total_links = of_get_child_count(dai_container);
-
+    
         for_each_child_of_node(dai_container, np) {
-			dev_dbg(dev, "\tlink %d:\n", i);
-			ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
-			if (ret == -ENODEV) {
-				pr_info("%s: skip link %d (cpu not available)\n", __func__, i);
-				priv->snd_card.num_links--;
-				total_links--;
-				continue;
-			} else if (ret < 0) {
-				dev_err(dev, "%s: Parsing dai link %d failed(%d)!\n",
-						__func__, i, ret);
-				of_node_put(np);
-				return ret;
-			}
-			i++;
-		}
+            dev_dbg(dev, "\tlink %d:\n", i);
+            ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
+            if (ret < 0) {
+                /* 允许跳过任意因 ENODEV 失败的 link（不再限最后一个） */
+                if (ret == -ENODEV) {
+                    pr_info("%s: skip link %d (%s) due to parse failure\n",
+                        __func__, i, np->name);
+                    /* 清除已分配的 dai_link 结构，避免残留 */
+                    memset(sprd_priv_to_link(priv, i), 0, sizeof(*sprd_priv_to_link(priv, i)));
+                    continue;
+                }
+                dev_err(dev, "%s: Parsing dai link %d failed(%d)!\n",
+                    __func__, i, ret);
+                of_node_put(np);
+                of_node_put(dai_container);
+                return ret;
+            }
+            i++;
+        }
+        priv->snd_card.num_links = i;   /* 更新为实际成功数 */
+        of_node_put(dai_container);
     } else {
-        /* For single DAI link & old style of DT node */
-        ret = asoc_sprd_card_dai_link_of(node, priv, 0, true);
-        if (ret < 0)
-            return ret;
+        /* 没有容器节点，检查是否有直接挂载的 sprd-audio-card,dai-link 节点 */
+        int direct_links = 0;
+        struct device_node *child;
+        for_each_child_of_node(node, child) {
+            if (of_node_name_eq(child, "sprd-audio-card,dai-link"))
+                direct_links++;
+        }
+    
+        if (direct_links > 0) {
+            /* 有平铺的 dai-link 节点，遍历解析 */
+            int i = 0;
+            struct device_node *np;
+            for_each_child_of_node(node, np) {
+                if (!of_node_name_eq(np, "sprd-audio-card,dai-link"))
+                    continue;
+    
+                dev_dbg(dev, "\tlink %d:\n", i);
+                ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
+                if (ret < 0) {
+                    if (ret == -ENODEV) {
+                        pr_info("%s: skip link %d (%s) due to parse failure\n",
+                            __func__, i, np->name);
+                        memset(sprd_priv_to_link(priv, i), 0, sizeof(*sprd_priv_to_link(priv, i)));
+                        continue;
+                    }
+                    dev_err(dev, "%s: Parsing dai link %d failed(%d)!\n",
+                        __func__, i, ret);
+                    of_node_put(np);
+                    return ret;
+                }
+                i++;
+            }
+            priv->snd_card.num_links = i;   /* 更新为实际成功数 */
+            ret = 0;
+        } else {
+            /* 真正的老式 DTS，没有 dai-link 子节点，按旧方式处理 */
+            ret = asoc_sprd_card_dai_link_of(node, priv, 0, true);
+            if (ret < 0)
+                return ret;
+        }
     }
 
 	ret = of_property_read_u32(node, "sprd-audio-card,codec-type", &val);
@@ -730,11 +773,28 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
 	}
 	 arch_audio_set_agcp_ahb_gpr(agcp_ahb_gpr);
 	/* Get the number of DAI links */
-	if (np && of_get_child_by_name(np, "sprd-audio-card,dai-link"))
-		num_links = of_get_child_count(np);
-	else
-		num_links = 1;
-
+    if (np) {
+        struct device_node *dai_container;
+    
+        dai_container = of_get_child_by_name(np, "sprd-audio-card,dai-link");
+        if (dai_container) {
+            num_links = of_get_child_count(dai_container);
+            of_node_put(dai_container);
+        } else {
+            /* 没有容器，尝试统计直接挂载的 sprd-audio-card,dai-link 节点 */
+            num_links = 0;
+            struct device_node *child;
+            for_each_child_of_node(np, child) {
+                if (of_node_name_eq(child, "sprd-audio-card,dai-link"))
+                    num_links++;
+            }
+            if (num_links == 0)
+                num_links = 1;   /* 回退到老式单一 link */
+        }
+    } else {
+        num_links = 1;
+    }
+    
 	/* Allocate the private data and the DAI link array */
 	priv = devm_kzalloc(dev,
 			    sizeof(*priv) + sizeof(*dai_link) * num_links,
