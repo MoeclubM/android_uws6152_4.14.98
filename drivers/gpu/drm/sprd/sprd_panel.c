@@ -727,10 +727,6 @@ static int sprd_backlight_init(struct sprd_panel *panel)
 	backlight->bdev = devm_backlight_device_register(&panel->dev,
 			"sprd_backlight", &panel->dev, backlight,
 			&sprd_backlight_ops, NULL);
-
-	backlight->bdev = devm_backlight_device_register(&panel->dev,
-			"sprd_backlight", &panel->dev, backlight,
-			&sprd_backlight_ops, NULL);
 	if (IS_ERR(backlight->bdev)) {
 		DRM_ERROR("failed to register backlight ops\n");
 		return PTR_ERR(backlight->bdev);
@@ -861,12 +857,6 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 		return ret;
 	}
 
-	ret = sprd_backlight_init(panel);
-	if (ret) {
-		DRM_ERROR("backlight init failed\n");
-		return ret;
-	}
-
 	slave->lanes = panel->info.lanes;
 	slave->format = panel->info.format;
 	slave->mode_flags = panel->info.mode_flags;
@@ -881,6 +871,12 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 
 	sprd_panel_sysfs_init(&panel->dev);
 	mipi_dsi_set_drvdata(slave, panel);
+
+	ret = sprd_backlight_init(panel);
+	if (ret) {
+		DRM_ERROR("backlight init failed\n");
+		return ret;
+	}
 
 	/*
 	 * FIXME:
