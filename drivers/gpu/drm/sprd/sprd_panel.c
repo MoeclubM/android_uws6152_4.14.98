@@ -854,6 +854,9 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 		return -EPROBE_DEFER;
 	}
 
+	panel->slave = slave;
+	mipi_dsi_set_drvdata(slave, panel);
+
 	ret = sprd_panel_device_create(&slave->dev, panel);
 	if (ret) {
 		DRM_ERROR("panel device create failed\n");
@@ -880,10 +883,7 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 		drm_panel_remove(&panel->base);
 		return ret;
 	}
-	panel->slave = slave;
 
-	// sprd_panel_sysfs_init(&panel->dev);
-	mipi_dsi_set_drvdata(slave, panel);
 
 	ret = sprd_backlight_init(panel);
 	if (ret) {
