@@ -708,8 +708,9 @@ static int sprd_backlight_init(struct sprd_panel *panel)
 	int bytes, rc;
 	u32 temp;
 
-	bl_node = of_get_child_by_name(info->of_node,
-				"backlight");
+	bl_node = of_get_child_by_name(info->of_node, "backlight");
+	if (!bl_node)
+		bl_node = of_get_child_by_name(info->of_node, "oled-backlight");
 	if (!bl_node)
 		return 0;
 
@@ -726,12 +727,42 @@ static int sprd_backlight_init(struct sprd_panel *panel)
 		return PTR_ERR(backlight->bdev);
 	}
 
-	p = of_get_property(bl_node, "brightness-levels", &bytes);
-	if (p) {
-		info->cmds[CMD_OLED_BRIGHTNESS] = p;
-		info->cmds_len[CMD_OLED_BRIGHTNESS] = bytes;
-	} else
-		DRM_ERROR("can't find brightness-levels property\n");
+p = of_get_property(bl_node, "brightness-levels", &bytes);
+if (p) {
+    {
+        const u8 *data = p;
+        int total_bytes = bytes;
+        int cmd_len_total = 6;  /* type(1) + wait(1) + wc_h(1) + wc_l(1) + payload(2) */
+        int num_levels;
+        int i;
+
+        if (total_bytes % cmd_len_total != 0) {
+            DRM_ERROR("brightness-levels length not multiple of 6\n");
+            return -EINVAL;
+        }
+        num_levels = total_bytes / cmd_len_total;
+
+        if (num_levels > 255) {
+            DRM_ERROR("too many brightness levels: %d\n", num_levels);
+            return -EINVAL;
+        }
+
+        for (i = 0; i < num_levels; i++) {
+            struct dsi_cmd_desc *cmd = devm_kzalloc(&panel->dev,
+                                                    sizeof(struct dsi_cmd_desc) + 2,
+                                                    GFP_KERNEL);
+            if (!cmd)
+                return -ENOMEM;
+
+            memcpy(cmd, data + i * cmd_len_total, cmd_len_total);
+            backlight->cmds[i] = cmd; 
+        }
+
+        backlight->cmds_total = num_levels;
+        backlight->cmd_len = cmd_len_total;
+    }
+} else
+    DRM_ERROR("can't find brightness-levels property\n");
 
 	rc = of_property_read_u32(bl_node, "default-brightness-level", &temp);
 	if (!rc)
@@ -747,6 +778,7 @@ static int sprd_backlight_init(struct sprd_panel *panel)
 
 	backlight->bdev->props.max_brightness = 255;
 	backlight->panel = panel;
+	panel->backlight = backlight->bdev;
 
 	DRM_INFO("%s() ok\n", __func__);
 
@@ -778,7 +810,7 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 			return -EPROBE_DEFER;
 		}
 	} else
-		DRM_WARN("backlight node not found\n");
+		DRM_WARN("Hello!Do you want some coffee?\n");
 
 	panel->supply = devm_regulator_get(&slave->dev, "power");
 	if (IS_ERR(panel->supply)) {
