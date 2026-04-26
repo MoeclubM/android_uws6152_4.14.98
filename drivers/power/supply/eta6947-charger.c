@@ -1357,5 +1357,6 @@ static struct i2c_driver eta6947_charger_driver = {
 };
 
 module_i2c_driver(eta6947_charger_driver);
+MODULE_AUTHOR("ZeroDreamCat <neko@0w0.cafe>");
 MODULE_DESCRIPTION("ETA6947 Charger Driver");
 MODULE_LICENSE("GPL v2");
