@@ -108,7 +108,7 @@ jobs:
           mkdir -p telegram_artifacts
           cp ${{ steps.locate.outputs.kernel_path }} telegram_artifacts/
           cp modules.tar.gz modules.zip telegram_artifacts/ 2>/dev/null || true
-          cp System.map Module.symvers build.log telegram_artifacts/ 2>/dev/null || true
+          cp System.map Module.symvers build.log vmlinux telegram_artifacts/ 2>/dev/null || true
           cd telegram_artifacts
           zip -9 ../all_artifacts.zip *
           cd ..
