@@ -103,20 +103,20 @@ jobs:
           cd ../../../..
           ls -lh modules.tar.gz modules.zip
 
+      - name: gzip vmlinux
+        run: gzip -9 vmlinux
+
       - name: Package all artifacts for Telegram
         run: |
           mkdir -p telegram_artifacts
           cp ${{ steps.locate.outputs.kernel_path }} telegram_artifacts/
           cp modules.tar.gz modules.zip telegram_artifacts/ 2>/dev/null || true
-          cp System.map Module.symvers build.log vmlinux telegram_artifacts/ 2>/dev/null || true
+          cp System.map Module.symvers build.log vmlinux.gz telegram_artifacts/ 2>/dev/null || true
           cd telegram_artifacts
           zip -9 ../all_artifacts.zip *
           cd ..
           echo "Created all_artifacts.zip"
           ls -lh all_artifacts.zip
-
-      - name: gzip vmlinux
-        run: gzip -9 vmlinux
 
       - name: Create Release and Upload Artifacts
         uses: softprops/action-gh-release@v1
