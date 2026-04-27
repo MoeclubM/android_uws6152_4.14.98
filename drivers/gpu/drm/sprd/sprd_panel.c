@@ -144,7 +144,8 @@ static int sprd_panel_unprepare(struct drm_panel *p)
 		mdelay(5);
 	}
 
-	regulator_disable(panel->supply);
+	if (panel->supply)
+        regulator_disable(panel->supply);
 	
 	DRM_INFO("[PANEL] unprepare done\n");
 
@@ -158,11 +159,13 @@ static int sprd_panel_prepare(struct drm_panel *p)
 	int items, i, ret;
 
 	DRM_INFO("%s()\n", __func__);
-
-	ret = regulator_enable(panel->supply);
-	if (ret < 0)
-		DRM_ERROR("enable lcd regulator failed\n");
-
+	
+    if (panel->supply) {
+        ret = regulator_enable(panel->supply);
+        if (ret < 0)
+            DRM_ERROR("enable lcd regulator failed\n");
+    }
+    
 	if (panel->info.avee_gpio) {
 		gpiod_direction_output(panel->info.avee_gpio, 1);
 		mdelay(5);
@@ -830,16 +833,19 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 	} else
 		DRM_WARN("Hello!Do you want some coffee?\n");
 
-	panel->supply = devm_regulator_get(&slave->dev, "power");
-	if (IS_ERR(panel->supply)) {
-		if (PTR_ERR(panel->supply) == -EPROBE_DEFER)
-			DRM_ERROR("regulator driver not initialized, probe deffer\n");
-		else
-			DRM_ERROR("can't get regulator: %ld\n", PTR_ERR(panel->supply));
-
-		return PTR_ERR(panel->supply);
-	}
-
+	panel->supply = devm_regulator_get_optional(&slave->dev, "power");
+    if (IS_ERR(panel->supply)) {
+        if (PTR_ERR(panel->supply) == -ENODEV) {
+            /* DTS 没配 power-supply，认为是固定电源/GPIO 直接供电 */
+            DRM_INFO("No panel regulator found, assume fixed supply\n");
+            panel->supply = NULL;
+        } else {
+            DRM_ERROR("Failed to get panel regulator: %ld\n",
+                      PTR_ERR(panel->supply));
+            return PTR_ERR(panel->supply);
+        }
+    }
+	
 	INIT_DELAYED_WORK(&panel->esd_work, sprd_panel_esd_work_func);
 
 	ret = sprd_panel_parse_dt(slave->dev.of_node, panel);
