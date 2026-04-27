@@ -106,23 +106,24 @@ jobs:
       - name: gzip vmlinux
         run: gzip -9 vmlinux
 
-      - name: Package all artifacts for Telegram
+      - name: Package all artifacts for Telegram (exclude vmlinux.gz)
         run: |
           mkdir -p telegram_artifacts
           cp ${{ steps.locate.outputs.kernel_path }} telegram_artifacts/
           cp modules.tar.gz modules.zip telegram_artifacts/ 2>/dev/null || true
           cp System.map Module.symvers build.log telegram_artifacts/ 2>/dev/null || true
+          # vmlinux.gz is too large for Telegram, will be available via Release link
           cd telegram_artifacts
           zip -9 ../all_artifacts.zip *
           cd ..
-          echo "Created all_artifacts.zip"
+          echo "Created all_artifacts.zip (without vmlinux.gz)"
           ls -lh all_artifacts.zip
 
       - name: Create Release and Upload Artifacts
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: 1.0
-          name: testbuild
+          tag_name: build-${{ github.run_id }}
+          name: Build - ${{ github.sha }} (${{ github.ref_name }})
           files: |
             ${{ steps.locate.outputs.kernel_path }}
             modules.tar.gz
@@ -136,7 +137,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Send all artifacts to Telegram
+      - name: Send artifacts to Telegram (lightweight + Release link)
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
@@ -145,16 +146,18 @@ jobs:
           COMMIT_MSG=$(git log -1 --pretty=%s)
           export COMMIT_MSG
           python3 -c "
-          import requests, os
+          import os, requests
 
           bot_token = os.environ['BOT_TOKEN']
           chat_id = os.environ['CHAT_ID']
           kernel_release = os.environ.get('KERNEL_RELEASE', 'unknown').strip()
           commit_msg = os.environ.get('COMMIT_MSG', 'unknown').strip()
-
           repo = os.environ.get('GITHUB_REPOSITORY', 'unknown')
           ref = os.environ.get('GITHUB_REF_NAME', 'unknown')
           sha = os.environ.get('GITHUB_SHA', 'unknown')[:7]
+          run_id = os.environ.get('GITHUB_RUN_ID', 'unknown')
+
+          release_url = f'https://github.com/{repo}/releases/tag/build-{run_id}'
 
           zip_file = 'all_artifacts.zip'
           if not os.path.exists(zip_file):
@@ -170,18 +173,20 @@ jobs:
               f'📝 Commit: {commit_msg} ({sha})\n'
               f'🌿 Branch: {ref}\n'
               f'📁 Repo: {repo}\n'
-              f'📎 All artifacts: kernel image, modules (tar.gz & zip), '
-              f'System.map, Module.symvers, build.log'
+              f'📎 Artifacts attached: kernel image, modules, System.map, build.log\n'
+              f'📥 Full release (including vmlinux.gz):\n{release_url}'
           )
-          url = f'https://api.telegram.org/bot{bot_token}/sendDocument'
+
           with open(zip_file, 'rb') as f:
-              resp = requests.post(url,
-                                   data={'chat_id': chat_id, 'caption': caption},
-                                   files={'document': f})
-          print(f'Response: {resp.text}')
+              resp = requests.post(
+                  f'https://api.telegram.org/bot{bot_token}/sendDocument',
+                  data={'chat_id': chat_id, 'caption': caption},
+                  files={'document': f}
+              )
+          print(resp.text)
           if resp.ok and resp.json().get('ok'):
-              print('✅ All files sent successfully!')
+              print('✅ Telegram notification sent successfully!')
           else:
-              print('❌ Failed to send.')
+              print('❌ Failed to send Telegram.')
               exit(1)
           "
