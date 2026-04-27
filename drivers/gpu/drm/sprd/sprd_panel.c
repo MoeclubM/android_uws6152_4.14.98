@@ -370,8 +370,10 @@ static void sprd_panel_esd_work_func(struct work_struct *work)
 		panel->esd_work_pending = false;
 
 		DRM_INFO("====== esd recovery start ========\n");
-		funcs->disable(encoder);
-		funcs->enable(encoder);
+		if (funcs && funcs->disable)
+           funcs->disable(encoder);
+        if (funcs && funcs->enable)
+           funcs->enable(encoder);
 		DRM_INFO("======= esd recovery end =========\n");
 	} else
 		schedule_delayed_work(&panel->esd_work,
