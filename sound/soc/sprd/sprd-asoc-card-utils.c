@@ -510,25 +510,42 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 	if (!of_property_read_u32(node, "mclk-fs", &val))
 		dai_props->mclk_fs = val;
 
-	ret = asoc_sprd_card_sub_parse_of(cpu, &dai_props->cpu_dai,
-					  &dai_link->cpu_of_node,
-					  &dai_link->cpu_dai_name, &cpu_args);
-	if (ret < 0)
-		goto dai_link_of_err;
+    ret = asoc_sprd_card_sub_parse_of(cpu, &dai_props->cpu_dai,
+    				  &dai_link->cpu_of_node,
+    				  &dai_link->cpu_dai_name, &cpu_args);
+    if (ret < 0) {
+    	pr_info("%s: parse for cpu failed (ret=%d), try to skip this link\n",
+    		__func__, ret);
+    	ret = -ENODEV; 
+    	goto dai_link_of_err;
+    }
 
-	ret = asoc_sprd_card_sub_parse_of(codec, &dai_props->codec_dai,
-					  &dai_link->codec_of_node,
-					  &dai_link->codec_dai_name, NULL);
-	if (ret < 0) {
-		if (-ENOENT == ret) {
-			pr_info("%s: parse for codec failed. Go to use a dummy codec.\n",
-			     __func__);
-			ret = asoc_sprd_card_dummy_codec_sel(codec, dai_link);
-			if (ret)
-				goto dai_link_of_err;
-		}
-	}
-
+    ret = asoc_sprd_card_sub_parse_of(codec, &dai_props->codec_dai,
+    				  &dai_link->codec_of_node,
+    				  &dai_link->codec_dai_name, NULL);
+    if (ret < 0) {
+    	pr_info("%s: parse for codec failed (ret=%d), try dummy codec.\n",
+    		__func__, ret);
+    	ret = asoc_sprd_card_dummy_codec_sel(codec, dai_link);
+    	if (ret) {
+    		pr_err("%s: dummy codec selection also failed (%d)\n",
+    		       __func__, ret);
+    		goto dai_link_of_err;
+    	}
+    }
+        
+    /*
+     * In soc_bind_dai_link() will check cpu name after
+     * of_node matching if dai_link has cpu_dai_name.
+     * but, it will never match if name was created by
+     * fmt_single_name() remove cpu_dai_name if cpu_args
+     * was 0. See:
+     *      fmt_single_name()
+     *      fmt_multiple_name()
+     */
+    if (!cpu_args)
+        dai_link->cpu_dai_name = NULL;
+    
 	if (!dai_link->cpu_dai_name || !dai_link->codec_dai_name) {
 		dev_err(dev, "%s: xx_dai_name is NULL\n", __func__);
 		goto dai_link_of_err;
@@ -558,18 +575,6 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 	dev_dbg(dev, "\tcodec : %s / %d\n",
 		dai_link->codec_dai_name, dai_props->codec_dai.sysclk);
 
-	/*
-	 * In soc_bind_dai_link() will check cpu name after
-	 * of_node matching if dai_link has cpu_dai_name.
-	 * but, it will never match if name was created by
-	 * fmt_single_name() remove cpu_dai_name if cpu_args
-	 * was 0. See:
-	 *      fmt_single_name()
-	 *      fmt_multiple_name()
-	 */
-	if (!cpu_args)
-		dai_link->cpu_dai_name = NULL;
-
 dai_link_of_err:
 	of_node_put(cpu);
 	if (plat)
@@ -585,6 +590,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 	struct device *dev = sprd_priv_to_dev(priv);
 	u32 val;
 	int ret;
+	struct device_node *dai_container;
 
 	if (!node) {
 		dev_err(dev, "%s: node is NULL\n", __func__);
@@ -635,35 +641,82 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 		priv->is_fm_open_src = val;
 	dev_dbg(dev, "is_fm_open_src=%u\n", priv->is_fm_open_src);
 
-	/* Single/Muti DAI link(s) & New style of DT node */
-	if (of_get_child_by_name(node, "sprd-audio-card,dai-link")) {
-		struct device_node *np = NULL;
-		int i = 0;
-
-		for_each_child_of_node(node, np) {
-			dev_dbg(dev, "\tlink %d:\n", i);
-			ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
-			if (ret < 0) {
-				dev_err(dev,
-					"%s: Parsing dai link %d failed(%d)!\n",
-					__func__, i, ret);
-				of_node_put(np);
-				return ret;
-			}
-			i++;
-		}
-	} else {
-		/* For single DAI link & old style of DT node */
-		ret = asoc_sprd_card_dai_link_of(node, priv, 0, true);
-		if (ret < 0)
-			return ret;
-	}
-
+    /* Single/Muti DAI link(s) & New style of DT node */
+    dai_container = of_get_child_by_name(node, "sprd-audio-card,dai-link");
+    
+    if (dai_container) {
+        struct device_node *np = NULL;
+        int i = 0;
+    
+        for_each_child_of_node(dai_container, np) {
+            dev_dbg(dev, "\tlink %d:\n", i);
+            ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
+            if (ret < 0) {
+                /* 允许跳过任意因 ENODEV 失败的 link（不再限最后一个） */
+                if (ret == -ENODEV) {
+                    pr_info("%s: skip link %d (%s) due to parse failure\n",
+                        __func__, i, np->name);
+                    /* 清除已分配的 dai_link 结构，避免残留 */
+                    memset(sprd_priv_to_link(priv, i), 0, sizeof(*sprd_priv_to_link(priv, i)));
+                    continue;
+                }
+                dev_err(dev, "%s: Parsing dai link %d failed(%d)!\n",
+                    __func__, i, ret);
+                of_node_put(np);
+                of_node_put(dai_container);
+                return ret;
+            }
+            i++;
+        }
+        priv->snd_card.num_links = i;   /* 更新为实际成功数 */
+        of_node_put(dai_container);
+    } else {
+        int i = 0;
+        struct device_node *np;
+        bool new_style = false;
+        const char *needle = "sprd-audio-card,dai-link";
+        int needle_len = strlen(needle);
+    
+        for_each_child_of_node(node, np) {
+            /* 前缀匹配，兼容带 @ 地址的节点名 */
+            if (strncmp(np->name, needle, needle_len) != 0)
+                continue;
+    
+            new_style = true;
+            dev_dbg(dev, "\tlink %d:\n", i);
+            ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
+            if (ret < 0) {
+                if (ret == -ENODEV) {
+                    pr_info("%s: skip link %d (%s) due to parse failure\n",
+                        __func__, i, np->name);
+                    memset(sprd_priv_to_link(priv, i), 0,
+                           sizeof(*sprd_priv_to_link(priv, i)));
+                    continue;
+                }
+                dev_err(dev, "%s: Parsing dai link %d failed(%d)!\n",
+                    __func__, i, ret);
+                of_node_put(np);
+                return ret;
+            }
+            i++;
+        }
+    
+        if (new_style) {
+            priv->snd_card.num_links = i;
+            ret = 0;
+        } else {
+            /* 真正的老式 DTS，无 dai-link 子节点 */
+            ret = asoc_sprd_card_dai_link_of(node, priv, 0, true);
+            if (ret < 0)
+                return ret;
+        }
+    }
+    
 	ret = of_property_read_u32(node, "sprd-audio-card,codec-type", &val);
 	if (ret == 0)
 		priv->codec_type = val;
 
-	if (!priv->snd_card.name)
+	if (!priv->snd_card.name && priv->snd_card.num_links > 0)
 		priv->snd_card.name = priv->snd_card.dai_link->name;
 
 	ret = sprd_asoc_card_parse_ext_hook(dev, &priv->ext_hook);
@@ -718,11 +771,29 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
 	}
 	 arch_audio_set_agcp_ahb_gpr(agcp_ahb_gpr);
 	/* Get the number of DAI links */
-	if (np && of_get_child_by_name(np, "sprd-audio-card,dai-link"))
-		num_links = of_get_child_count(np);
-	else
-		num_links = 1;
-
+    if (np) {
+        struct device_node *dai_container;
+        struct device_node *child;
+    
+        dai_container = of_get_child_by_name(np, "sprd-audio-card,dai-link");
+        if (dai_container) {
+            num_links = of_get_child_count(dai_container);
+            of_node_put(dai_container);
+        } else {
+            num_links = 0;
+            const char *prefix = "sprd-audio-card,dai-link";
+            int prefix_len = strlen(prefix);
+            for_each_child_of_node(np, child) {
+                if (strncmp(child->name, prefix, prefix_len) == 0)
+                    num_links++;
+            }
+            if (num_links == 0)
+                num_links = 1;
+        }
+    } else {
+        num_links = 1;
+    }
+    
 	/* Allocate the private data and the DAI link array */
 	priv = devm_kzalloc(dev,
 			    sizeof(*priv) + sizeof(*dai_link) * num_links,
