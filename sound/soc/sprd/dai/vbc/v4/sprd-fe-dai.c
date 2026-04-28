@@ -1205,31 +1205,6 @@ static struct snd_soc_dai_driver sprd_fe_dais[FE_DAI_ID_MAX] = {
 		},
 		.ops = &sprd_fe_dai_ops,
 	},
-	/* 19: FE_DAI_ID_CODEC_TEST */
-	{
-		.id = FE_DAI_ID_CODEC_TEST,
-		.name = TO_STRING(FE_DAI_ID_CODEC_TEST),
-		.playback = {
-			.stream_name = "FE_DAI_CODEC_TEST_P",
-			.rates = SNDRV_PCM_RATE_CONTINUOUS,
-			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-						SNDRV_PCM_FMTBIT_S24_LE),
-			.channels_min = 1,
-			.channels_max = 2,
-			.rate_min = 8000,
-			.rate_max = 192000,
-		},
-		.capture = {
-			.stream_name = "FE_DAI_CODEC_TEST_C",
-			.rates = SNDRV_PCM_RATE_CONTINUOUS,
-			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-					SNDRV_PCM_FMTBIT_S24_LE),
-			.channels_min = 1,
-			.channels_max = 2,
-			.rate_min = 8000,
-			.rate_max = 192000,
-		},
-	},
 
 	/* 19: FE_DAI_ID_HFP */
 	{
