@@ -6289,28 +6289,34 @@ static struct snd_soc_dai_driver vbc_dais[BE_DAI_ID_MAX] = {
 		.probe = sprd_dai_vbc_probe,
 		.ops = &vbc_dump_ops,
 	},
-	/*
-	 * 31. DUMMY CPU DAI NOT BE(no stream, no be dai)
-	 * only dais with stream that can play as BE DAI.
-	 */
-	{
-		.name = TO_STRING(BE_DAI_ID_DUMMY_VBC_DAI_NOTBE),
-		.id = BE_DAI_ID_DUMMY_VBC_DAI_NOTBE,
-		.playback = {
-			.channels_min = 1,
-			.channels_max = 2,
-			.rates = SNDRV_PCM_RATE_CONTINUOUS,
-			.rate_max = 192000,
-			.formats = SPRD_VBC_DAI_PCM_FORMATS,
-		},
-		.capture = {
-			.channels_min = 1,
-			.channels_max = 2,
-			.rates = SNDRV_PCM_RATE_CONTINUOUS,
-			.rate_max = 192000,
-			.formats = SPRD_VBC_DAI_PCM_FORMATS,
-		},
-	},
+    /*
+     * 31. DUMMY CPU DAI NOT BE(no stream, no be dai)
+     * only dais with stream that can play as BE DAI.
+     */
+    {
+    	.name = TO_STRING(BE_DAI_ID_DUMMY_VBC_DAI_NOTBE),
+    	.id = BE_DAI_ID_DUMMY_VBC_DAI_NOTBE,
+    	.playback = {
+    		.stream_name = "BE_DAI_DUMMY_AP01_P",
+    		.aif_name = "BE_IF_DUMMY_AP01_P",
+    		.channels_min = 1,
+    		.channels_max = 2,
+    		.rates = SNDRV_PCM_RATE_CONTINUOUS,
+    		.rate_max = 192000,
+    		.formats = SPRD_VBC_DAI_PCM_FORMATS,
+    	},
+    	.capture = {
+    		.stream_name = "BE_DAI_DUMMY_AP01_C",
+    		.aif_name = "BE_IF_DUMMY_AP01_C",
+    		.channels_min = 1,
+    		.channels_max = 2,
+    		.rates = SNDRV_PCM_RATE_CONTINUOUS,
+    		.rate_max = 192000,
+    		.formats = SPRD_VBC_DAI_PCM_FORMATS,
+    	},
+    	.probe = sprd_dai_vbc_probe,
+    	.ops = &normal_ops,
+    },
 	/* 32: BE_DAI_ID_FAST_P_BTSCO */
 	{
 		.name = TO_STRING(BE_DAI_ID_FAST_P_BTSCO),
@@ -6519,7 +6525,7 @@ static struct snd_soc_dai_driver vbc_dais[BE_DAI_ID_MAX] = {
     	.id = BE_DAI_ID_RECOGNISE_CAPTURE,
     	.playback = {
     		.stream_name = "BE_DAI_HFP_P",
-    		.aif_name = "BE_IF_HFP_P",
+    		.aif_name = "BE_IF_HFP_P2",
     		.channels_min = 1,
     		.channels_max = 2,
     		.rates = SNDRV_PCM_RATE_CONTINUOUS,
