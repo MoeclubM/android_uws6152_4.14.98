@@ -338,6 +338,7 @@ static int sprd_panel_esd_check(struct sprd_panel *panel)
 	u8 read_val = 0;
 	int ret;
 
+    mipi_dsi_set_maximum_return_packet_size(panel->slave, 1);
 	ret = mipi_dsi_dcs_read(panel->slave, info->esd_check_reg,
 				&read_val, 1);
 	if (ret < 0) {
@@ -356,34 +357,32 @@ static int sprd_panel_esd_check(struct sprd_panel *panel)
 
 static void sprd_panel_esd_work_func(struct work_struct *work)
 {
-	struct sprd_panel *panel = container_of(work, struct sprd_panel, esd_work);
-	struct panel_info *info = &panel->info;
-	int ret;
+    struct sprd_panel *panel = container_of(to_delayed_work(work), struct sprd_panel, esd_work);
+    struct panel_info *info = &panel->info;
+    int ret;
 
-	mutex_lock(&panel_lock);
-	if (!panel->is_enabled) {
-		panel->esd_work_pending = false;
-		mutex_unlock(&panel_lock);
-		return;
-	}
+    mutex_lock(&panel_lock);
+    if (!panel->is_enabled) {
+        panel->esd_work_pending = false;
+        mutex_unlock(&panel_lock);
+        return;
+    }
 
-	ret = sprd_panel_esd_check(panel);
-	if (ret) {
-		panel->esd_work_pending = false;
-		mutex_unlock(&panel_lock);
+    ret = sprd_panel_esd_check(panel);
+    if (ret) {
+        panel->esd_work_pending = false;
+        mutex_unlock(&panel_lock);
 
-		/* 通过 panel 自身回调恢复，安全可靠 */
-		sprd_panel_disable(&panel->base);
-		sprd_panel_unprepare(&panel->base);
-		sprd_panel_prepare(&panel->base);
-		sprd_panel_enable(&panel->base);
-
-		/* enable 中会重新调度 ESD work，无需额外操作 */
-	} else {
-		schedule_delayed_work(&panel->esd_work,
-				      msecs_to_jiffies(info->esd_check_period));
-		mutex_unlock(&panel_lock);
-	}
+        /* 通过 panel 自身回调恢复 */
+        sprd_panel_disable(&panel->base);
+        sprd_panel_unprepare(&panel->base);
+        sprd_panel_prepare(&panel->base);
+        sprd_panel_enable(&panel->base);
+    } else {
+        schedule_delayed_work(&panel->esd_work,
+                              msecs_to_jiffies(info->esd_check_period));
+        mutex_unlock(&panel_lock);
+    }
 }
 
 static int sprd_panel_gpio_request(struct device *dev, struct sprd_panel *panel)
