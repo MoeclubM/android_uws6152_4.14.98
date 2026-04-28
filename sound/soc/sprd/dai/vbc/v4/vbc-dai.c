@@ -375,9 +375,9 @@ static int check_be_dai_id(int be_dai_id)
 	case BE_DAI_ID_HFP:
 		scene_id = VBC_DAI_ID_HFP;
 		break;
-	case BE_DAI_ID_RECOGNISE_CAPTURE:
-		scene_id = VBC_DAI_ID_RECOGNISE_CAPTURE;
-		break;
+    case BE_DAI_ID_RECOGNISE_CAPTURE:
+    	scene_id = VBC_DAI_ID_HFP;
+    	break;
 	case BE_DAI_ID_VOICE_PCM_P:
 		scene_id = VBC_DAI_ID_VOICE_PCM_P;
 		break;
@@ -6513,22 +6513,31 @@ static struct snd_soc_dai_driver vbc_dais[BE_DAI_ID_MAX] = {
 		.ops = &hfp_ops,
 	},
 
-	/* 44: BE_DAI_ID_RECOGNISE_CAPTURE */
-	{
-		.name = TO_STRING(BE_DAI_ID_RECOGNISE_CAPTURE),
-		.id = BE_DAI_ID_RECOGNISE_CAPTURE,
-		.capture = {
-			.stream_name = "BE_DAI_CAP_RECOGNISE_CODEC_C",
-			.aif_name = "BE_IF_CAP_RECOGNISE_CODEC_C",
-			.channels_min = 1,
-			.channels_max = 2,
-			.rates = SNDRV_PCM_RATE_CONTINUOUS,
-			.rate_max = 192000,
-			.formats = SPRD_VBC_DAI_PCM_FORMATS,
-		},
-		.probe = sprd_dai_vbc_probe,
-		.ops = &recognise_capture_ops,
-	},
+    /* 44: 用于 HFP 播放（原 RECOGNISE_CAPTURE 被覆盖） */
+    {
+    	.name = TO_STRING(BE_DAI_ID_RECOGNISE_CAPTURE),
+    	.id = BE_DAI_ID_RECOGNISE_CAPTURE,
+    	.playback = {
+    		.stream_name = "BE_DAI_HFP_P",
+    		.aif_name = "BE_IF_HFP_P",
+    		.channels_min = 1,
+    		.channels_max = 2,
+    		.rates = SNDRV_PCM_RATE_CONTINUOUS,
+    		.rate_max = 192000,
+    		.formats = SPRD_VBC_DAI_PCM_FORMATS,
+    	},
+    	.capture = {
+    		.stream_name = "BE_DAI_CAP_RECOGNISE_CODEC_C",
+    		.aif_name = "BE_IF_CAP_RECOGNISE_CODEC_C",
+    		.channels_min = 1,
+    		.channels_max = 2,
+    		.rates = SNDRV_PCM_RATE_CONTINUOUS,
+    		.rate_max = 192000,
+    		.formats = SPRD_VBC_DAI_PCM_FORMATS,
+    	},
+    	.probe = sprd_dai_vbc_probe,
+    	.ops = &hfp_ops,
+    },
 
 	/* 45: BE_DAI_ID_VOICE_PCM_P */
 	{
