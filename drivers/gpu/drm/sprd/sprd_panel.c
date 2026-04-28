@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018 Spreadtrum Communications Inc.
+ * ICN3312 Panel driver from sprd simple panel by SoraNeko
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -101,6 +101,13 @@ static int sprd_panel_send_cmds(struct mipi_dsi_device *dsi,
 	while (size > 0) {
 		len = (cmds->wc_h << 8) | cmds->wc_l;
 
+		/* 健壮性检查：确保长度合法，防止越界 */
+		if (len + 4 > size) {
+			DRM_ERROR("Invalid cmd length: len=%u, remaining size=%d\n",
+				  len, size);
+			return -EINVAL;
+		}
+
 		if (panel->info.use_dcs)
 			mipi_dsi_dcs_write_buffer(dsi, cmds->payload, len);
 		else
@@ -162,8 +169,10 @@ static int sprd_panel_prepare(struct drm_panel *p)
 
 	if (panel->supply) {
 		ret = regulator_enable(panel->supply);
-		if (ret < 0)
+		if (ret < 0) {
 			DRM_ERROR("enable lcd regulator failed\n");
+			return ret;
+		}
 	}
 
 	if (panel->info.avee_gpio) {
@@ -197,9 +206,12 @@ static int sprd_panel_disable(struct drm_panel *p)
 	struct backlight_device *bl = NULL;
 
 	mutex_lock(&panel_lock);
+	/* 提前标记并释放锁，避免死锁 */
 	if (panel->esd_work_pending) {
-		cancel_delayed_work_sync(&panel->esd_work);
 		panel->esd_work_pending = false;
+		mutex_unlock(&panel_lock);
+		cancel_delayed_work_sync(&panel->esd_work);
+		mutex_lock(&panel_lock);
 	}
 
 	if (panel->backlight) {
@@ -294,8 +306,11 @@ static int sprd_panel_get_modes(struct drm_panel *p)
 		vm.pixelclock = surface_width * surface_height * 60;
 
 		mode = drm_mode_create(p->drm);
-		/* TODO:  How to do low simulator resolution? */
-
+		if (!mode) {
+            DRM_ERROR("failed to create mode for surface\n");
+            return mode_count;
+        }
+        
 		mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
 		mode->vrefresh = 60;
 		drm_display_mode_from_videomode(&vm, mode);
@@ -323,18 +338,16 @@ static int sprd_panel_esd_check(struct sprd_panel *panel)
 	u8 read_val = 0;
 	int ret;
 
-	/* FIXME: we should enable HS cmd tx here */
-	mipi_dsi_set_maximum_return_packet_size(panel->slave, 1);
 	ret = mipi_dsi_dcs_read(panel->slave, info->esd_check_reg,
 				&read_val, 1);
-	if (ret <= 0) {
+	if (ret < 0) {
 		DRM_ERROR("esd check read failed: %d\n", ret);
-		return -EIO;
+		return ret;
 	}
 
-	if (read_val != info->esd_check_val) {
-		DRM_ERROR("esd check failed, read value = 0x%02x\n",
-			  read_val);
+	/* 成功读取至少 1 字节 */
+	if (ret != 1 || read_val != info->esd_check_val) {
+		DRM_ERROR("esd check failed, read value = 0x%02x\n", read_val);
 		return -EINVAL;
 	}
 
@@ -345,8 +358,6 @@ static void sprd_panel_esd_work_func(struct work_struct *work)
 {
 	struct sprd_panel *panel = container_of(work, struct sprd_panel, esd_work);
 	struct panel_info *info = &panel->info;
-	struct drm_encoder *encoder;
-	const struct drm_encoder_helper_funcs *funcs;
 	int ret;
 
 	mutex_lock(&panel_lock);
@@ -358,26 +369,16 @@ static void sprd_panel_esd_work_func(struct work_struct *work)
 
 	ret = sprd_panel_esd_check(panel);
 	if (ret) {
-		/* 确保 connector 存在并获取 encoder */
-		if (panel->base.connector)
-			encoder = panel->base.connector->encoder;
-		else
-			encoder = NULL;
-		// 尝试增加 encoder 引用（若 DRM 版本支持）
-		if (encoder && encoder->dev)
-			drm_dev_get(encoder->dev);
-		funcs = encoder ? encoder->helper_private : NULL;
 		panel->esd_work_pending = false;
 		mutex_unlock(&panel_lock);
 
-		if (funcs && funcs->disable)
-			funcs->disable(encoder);
-		if (funcs && funcs->enable)
-			funcs->enable(encoder);
+		/* 通过 panel 自身回调恢复，安全可靠 */
+		sprd_panel_disable(&panel->base);
+		sprd_panel_unprepare(&panel->base);
+		sprd_panel_prepare(&panel->base);
+		sprd_panel_enable(&panel->base);
 
-		if (encoder && encoder->dev)
-			drm_dev_put(encoder->dev);
-		// 注意：enable 回调中会重新获取 panel_lock 并启动 work，此处无需重复调度
+		/* enable 中会重新调度 ESD work，无需额外操作 */
 	} else {
 		schedule_delayed_work(&panel->esd_work,
 				      msecs_to_jiffies(info->esd_check_period));
@@ -491,6 +492,7 @@ static int of_get_buildin_modes(struct panel_info *info,
 	if (num_timings == 0) {
 		/* should never happen, as entry was already found above */
 		DRM_ERROR("%s: no timings specified\n", lcd_node->name);
+		rc = -ENODEV;
 		goto done;
 	}
 
@@ -516,10 +518,13 @@ static int of_get_buildin_modes(struct panel_info *info,
 	}
 	info->num_biuldin_modes = num_timings;
 	DRM_INFO("info->num_buildin_modes = %d\n", num_timings);
+	rc = 0;
 	goto done;
 
 entryfail:
-	goto done;
+	devm_kfree(dev, info->buildin_modes);
+	info->buildin_modes = NULL;
+	rc = -EINVAL;
 done:
 	of_node_put(timings_np);
 	return rc;
@@ -593,8 +598,10 @@ static int sprd_panel_parse_dt(struct device_node *np, struct sprd_panel *panel,
 		info->format = MIPI_DSI_FMT_RGB565;
 	else if (!strcmp(str, "dsc"))
 		info->format = SPRD_MIPI_DSI_FMT_DSC;
-	else
+	else {
+	    info->format = MIPI_DSI_FMT_RGB888;
 		DRM_ERROR("dsi-color-format (%s) is not supported\n", str);
+	}
 
 	rc = of_property_read_u32(lcd_node, "sprd,width-mm", &val);
 	if (!rc)
@@ -744,7 +751,6 @@ static int sprd_backlight_set_brightness(struct backlight_device *bdev)
 	DRM_INFO("[BACKLIGHT] brightness=%d -> level=%d (cmds_total=%d)\n",
 		 brightness, level, backlight->cmds_total);
 
-
 	if (backlight->cmds_total == 1) {
 		backlight->cmds[0]->payload[1] = level;
 		sprd_panel_send_cmds(panel->slave,
@@ -888,7 +894,7 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 	ret = sprd_panel_gpio_request(&slave->dev, panel);
 	if (ret) {
 		DRM_WARN("gpio request failed\n");
-		return ret;   // 包括 -EPROBE_DEFER
+		goto err_put_node;
 	}
 
 	panel->slave = slave;
