@@ -3572,7 +3572,6 @@ CONFIG_IIO_CONSUMERS_PER_TRIGGER=2
 # CONFIG_BMA180 is not set
 # CONFIG_BMA220 is not set
 # CONFIG_BMC150_ACCEL is not set
-# CONFIG_DA280 is not set
 # CONFIG_DA311 is not set
 # CONFIG_DMARD06 is not set
 # CONFIG_DMARD09 is not set
