@@ -2300,6 +2300,41 @@ static int scene_capture_dsp_hw_free(struct snd_pcm_substream *substream,
 	return 0;
 }
 
+static int scene_fast_startup(struct snd_pcm_substream *substream,
+			      struct snd_soc_dai *dai)
+{
+	int stream = substream->stream;
+	int scene_id = VBC_DAI_ID_FAST_P;
+	int be_dai_id = dai->id;
+	struct vbc_codec_priv *vbc_codec = dev_get_drvdata(dai->dev);
+	int ret = 0;
+
+	pr_info("%s dai:%s(%d) scene:%s %s\n", __func__,
+		dai_id_to_str(be_dai_id),
+		be_dai_id, scene_id_to_str(scene_id), stream_to_str(stream));
+
+	if (scene_id != check_be_dai_id(be_dai_id)) {
+		pr_err("%s check_be_dai_id failed\n", __func__);
+		return -EINVAL;
+	}
+
+	if (!vbc_codec)
+		return 0;
+
+	startup_lock_mtx(scene_id, stream);
+	startup_add_ref(scene_id, stream);
+	if (startup_get_ref(scene_id, stream) == 1) {
+		ret = dsp_startup(vbc_codec, scene_id, stream);
+		if (ret)
+			startup_dec_ref(scene_id, stream);
+		else
+			set_scene_flag(scene_id, stream);
+	}
+	startup_unlock_mtx(scene_id, stream);
+
+	return ret;
+}
+
 static int scene_capture_dsp_trigger(struct snd_pcm_substream *substream,
 				     int cmd, struct snd_soc_dai *dai)
 {
