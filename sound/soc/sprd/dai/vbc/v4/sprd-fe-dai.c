@@ -538,7 +538,7 @@ static void sprd_dma_config(struct snd_pcm_substream *substream,
 			/*voip capture*/
 			pcm_voip_record_mcdt.name = "PCM voip record With MCDT";
 			pcm_voip_record_mcdt.irq_type = SPRD_DMA_BLK_INT;
-			pcm_voip_record_mcdt.desc.datawidth = SPRD_DMA_BLK_INT;
+			pcm_voip_record_mcdt.desc.datawidth = DMA_SLAVE_BUSWIDTH_4_BYTES;
 			pcm_voip_record_mcdt.desc.fragmens_len =
 				MCDT_VOIP_C_FRAGMENT;
 			pcm_voip_record_mcdt.use_mcdt = 1;
@@ -776,7 +776,6 @@ static int fe_hw_params(struct snd_pcm_substream *substream,
 {
 	struct sprd_pcm_dma_params *dma_data = NULL;
 	int data_fmt;
-
 	int ret;
 
 	pr_info("%s fe dai: %s(%d) %s\n", __func__,
@@ -795,9 +794,11 @@ static int fe_hw_params(struct snd_pcm_substream *substream,
 		agdsp_access_disable();
 		return ret;
 	}
+	/* 此后 MCDT 通道已分配，任何错误返回前必须调用 mcdt_dma_deinit */
 	agdsp_access_disable();
 
 	sprd_dma_config(substream, params, fe_dai);
+
 	switch (params_format(params)) {
 	case SNDRV_PCM_FORMAT_S16_LE:
 		data_fmt = VBC_DAT_L16;
@@ -808,8 +809,11 @@ static int fe_hw_params(struct snd_pcm_substream *substream,
 	default:
 		data_fmt = VBC_DAT_L16;
 		pr_err("%s unsupported data format\n", __func__);
-		break;
+		/* 新增错误处理：格式不支持时释放 MCDT 并返回 */
+		ret = -EINVAL;
+		goto err_mcdt_deinit;
 	}
+
 	dma_data = get_dma_data_params(fe_dai, substream->stream);
 	if (dma_data) {
 		if (VBC_DAT_L24 == data_fmt || 1 == dma_data->use_mcdt)
@@ -819,8 +823,12 @@ static int fe_hw_params(struct snd_pcm_substream *substream,
 	}
 
 	snd_soc_dai_set_dma_data(fe_dai, substream, dma_data);
-
 	return 0;
+
+err_mcdt_deinit:
+	/* 如果未来在此函数中添加其他可能失败的操作，可沿用此标号 */
+	mcdt_dma_deinit(fe_dai, substream->stream);
+	return ret;
 }
 
 static int fe_hw_free(struct snd_pcm_substream *substream,

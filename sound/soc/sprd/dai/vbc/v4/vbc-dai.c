@@ -4250,7 +4250,6 @@ static int scene_bt_capture_trigger(struct snd_pcm_substream *substream,
 			ap_trigger(vbc_codec, scene_id, stream, vbc_chan,
 				   up_down);
 			ret = dsp_trigger(vbc_codec, scene_id, stream, up_down);
-			normal_vbc_protect_spin_unlock(stream);
 		}
 		trigger_unlock_spin(scene_id, stream);
 	} else {
