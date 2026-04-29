@@ -454,19 +454,9 @@ static int asoc_sprd_card_dummy_codec_sel(struct device_node *np,
 		return ret;
 	}
 
-	if (val[0] != 0) {
-		pr_err("%s: not a need of dummy dai!\n", __func__);
-		return -EINVAL;
-	}
-
-	if (val[1] == 1) {	/* dummy playback-only codec */
-		dai_link->codec_dai_name = "sprd-dummy-playback-dai";
-		dai_link->codec_name = "sprd-dummy-playback";
-	} else {
-		dai_link->codec_dai_name = "snd-soc-dummy-dai";
-		dai_link->codec_name = "snd-soc-dummy";
-	}
-
+	/* 统一使用标准 snd-soc-dummy，不再依赖 sprd-dummy-playback */
+	dai_link->codec_dai_name = "snd-soc-dummy-dai";
+	dai_link->codec_name = "snd-soc-dummy";
 	return 0;
 }
 
