@@ -70,6 +70,7 @@ jobs:
 
       - name: Locate pure kernel image
         id: locate
+        continue-on-error: true
         run: |
           if [ -f arch/arm64/boot/Image.gz ]; then
             echo "kernel_path=arch/arm64/boot/Image.gz" >> $GITHUB_OUTPUT
@@ -79,6 +80,17 @@ jobs:
             echo "No kernel image found!"
             exit 1
           fi
+
+      - name: Send build.log if kernel image not found
+        if: steps.locate.outcome == 'failure'
+        env:
+          BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          CHAT_ID: ${{ secrets.TELEGRAM_TO }}
+        run: |
+          curl -s -F document=@build.log \
+            -F "caption=❌ Build failed: kernel image not found. See build.log for details." \
+            "https://api.telegram.org/bot${BOT_TOKEN}/sendDocument?chat_id=${CHAT_ID}"
+          exit 1
 
       - name: Package modules
         run: |
