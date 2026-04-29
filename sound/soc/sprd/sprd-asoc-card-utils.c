@@ -820,9 +820,6 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
 	if (!priv)
 		return -ENOMEM;
 
-	/* 修复：让 priv->dai_link 指向数组起始地址 */
-	priv->dai_link = (struct snd_soc_dai_link *)(priv + 1);
-
 	/* Init snd_soc_card */
 	priv->snd_card.owner = THIS_MODULE;
 	priv->snd_card.dev = dev;
