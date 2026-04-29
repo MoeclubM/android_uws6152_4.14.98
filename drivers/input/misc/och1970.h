@@ -69,7 +69,6 @@ struct och1970_data {
      struct i2c_client *client;
      struct input_dev *input;
      struct mutex irq_mutex;
-     struct wake_lock time_lock;
      struct delayed_work work;
      struct work_struct irq_work;
      uint16_t bop_x1;

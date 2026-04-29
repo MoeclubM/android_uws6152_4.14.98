@@ -17,7 +17,6 @@
 #include <linux/regulator/consumer.h>
 #include <linux/input.h>
 #include <linux/regmap.h>
-#include <asm/uaccess.h>
 #include <linux/device.h>
 #include <linux/gpio.h>
 #include <linux/err.h>
@@ -26,7 +25,7 @@
 #include <linux/workqueue.h>
 #include <linux/irq.h>
 #include <linux/interrupt.h>
-#include <linux/wakelock.h>
+#include <linux/pm.h>
 #include <linux/hrtimer.h>
 #include <linux/kthread.h>
 #include <linux/sched/rt.h>
@@ -294,9 +293,6 @@ static void och1970_irq_work_fun(struct work_struct *work)
     mutex_lock(&t_och1970->irq_mutex);
 
     och1970_get_xyz_data();
-    if (device_may_wakeup(&t_och1970->client->dev)) {
-        pm_relax(&t_och1970->client->dev);
-    }
     OCH_INFO("%s start     @@@@@@@@@@@@@@@@@@@\n", __func__);
     OCH_INFO("Xdata: %d \n", t_och1970->x_data);
     OCH_INFO("Ydata: %d \n", t_och1970->y_data);
@@ -331,13 +327,8 @@ static void och1970_irq_work_fun(struct work_struct *work)
 static irqreturn_t och1970_handle_fun(int irq, void *desc)
 {
     disable_irq_nosync(irq);
-    wake_lock_timeout(&t_och1970->time_lock,5*HZ);
-    if (device_may_wakeup(&t_och1970->client->dev)) {
-        pm_stay_awake(&t_och1970->client->dev);
-    }
-
+    pm_wakeup_event(&t_och1970->client->dev, 5 * HZ);
     schedule_work(&t_och1970->irq_work);
-
     return IRQ_HANDLED;
 }
 
@@ -684,7 +675,6 @@ static int och1970_i2c_probe(struct i2c_client *client, const struct i2c_device_
     }
 
     och1970->delay = 100;
-    wake_lock_init(&och1970->time_lock, WAKE_LOCK_SUSPEND, "och1970-time");
     device_init_wakeup(&och1970->client->dev, och1970->wakeup);
     INIT_DELAYED_WORK(&och1970->work, och1970_work_func);
     INIT_WORK(&och1970->irq_work, och1970_irq_work_fun);
@@ -745,7 +735,7 @@ static int och1970_resume(struct device *dev)
 
     if (device_may_wakeup(&och1970->client->dev)) {
          OCH_INFO("%s: %d\n", __FUNCTION__, __LINE__);
-         enable_irq_wake(och1970->irq_number);
+         disable_irq_wake(och1970->irq_number);
     }
     return 0;
 }
