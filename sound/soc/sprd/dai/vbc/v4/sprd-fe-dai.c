@@ -48,47 +48,6 @@
 
 #define TO_STRING(e) #e
 
-/* ---------- 补充缺失的 MCDT 功能通道宏定义 ---------- */
-#define MCDT_CHAN_DSP_CAP               MCDT_CHAN0
-#define MCDT_CHAN_FAST_PLAY             MCDT_CHAN1
-#define MCDT_CHAN_LOOP                  MCDT_CHAN2
-#define MCDT_CHAN_VOIP                  MCDT_CHAN3
-#define MCDT_CHAN_A2DP_PCM              MCDT_CHAN4
-#define MCDT_CHAN_VOICE_CAPTURE         MCDT_CHAN5
-#define MCDT_CHAN_DSP_FM_CAP            MCDT_CHAN6
-#define MCDT_CHAN_DSP_BTSCO_CAP         MCDT_CHAN7
-#define MCDT_CHAN_RECOGNISE_CAPTURE     MCDT_CHAN8
-#define MCDT_CHAN_VOICE_PCM_P           MCDT_CHAN9
-
-/* 水印值 */
-#define MCDT_FULL_WMK_DSP_CAP           128
-#define MCDT_EMPTY_WMK_FAST_PLAY        128
-#define MCDT_EMPTY_WMK_LOOP             128
-#define MCDT_FULL_WMK_LOOP              128
-#define MCDT_EMPTY_WMK_VOIP             128
-#define MCDT_FULL_WMK_VOIP              128
-#define MCDT_EMPTY_WMK_A2DP_PCM         128
-#define MCDT_FULL_WMK_VOICE_CAPTURE     128
-#define MCDT_FULL_WMK_DSP_FM_CAP        128
-#define MCDT_FULL_WMK_DSP_BTSCO_CAP     128
-#define MCDT_FULL_WMK_RECOGNISE_CAPTURE 128
-#define MCDT_EMPTY_WMK_VOICE_PCM_P      128
-
-/* 片断大小 (bytes) */
-#define MCDT_DSPCAP_FRAGMENT            0x1000
-#define MCDT_FAST_PLAY_FRAGMENT         0x1000
-#define MCDT_LOOP_P_FRAGMENT            0x1000
-#define MCDT_LOOP_C_FRAGMENT            0x1000
-#define MCDT_VOIP_P_FRAGMENT            0x1000
-#define MCDT_VOIP_C_FRAGMENT            0x1000
-#define MCDT_A2DP_PCM_FRAGMENT          0x1000
-#define MCDT_VOICE_C_FRAGMENT           0x1000
-#define MCDT_DSPFMCAP_FRAGMENT          0x1000
-#define MCDT_DSPBTSCOCAP_FRAGMENT       0x1000
-#define MCDT_RECOGNISE_C_FRAGMENT       0x1000
-#define MCDT_VOICE_PCM_P_FRAGMENT       0x1000
-/* ---------- 宏定义结束 ---------- */
-
 static struct sprd_pcm_dma_params vbc_pcm_normal_ap01_p;
 static struct sprd_pcm_dma_params vbc_pcm_normal_ap01_c;
 static struct sprd_pcm_dma_params vbc_pcm_normal_ap23_p;
