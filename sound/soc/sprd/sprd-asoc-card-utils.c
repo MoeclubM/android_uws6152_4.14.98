@@ -190,8 +190,10 @@ asoc_sprd_card_sub_parse_of(struct device_node *np,
 		dai->sysclk = val;
 	} else {
 		clk = of_clk_get(args.np, 0);
-		if (!IS_ERR(clk))
+		if (!IS_ERR(clk)) {
 			dai->sysclk = clk_get_rate(clk);
+			clk_put(clk); /* 修复：释放时钟引用，避免泄漏 */
+		}
 	}
 
 	return 0;
@@ -546,8 +548,9 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
     if (!cpu_args)
         dai_link->cpu_dai_name = NULL;
     
-	if (!dai_link->cpu_dai_name || !dai_link->codec_dai_name) {
-		dev_err(dev, "%s: xx_dai_name is NULL\n", __func__);
+	/* 修复：去掉错误的空指针检查，cpu_dai_name 允许为 NULL */
+	if (!dai_link->codec_dai_name) {
+		dev_err(dev, "%s: codec_dai_name is NULL\n", __func__);
 		goto dai_link_of_err;
 	}
 
@@ -576,6 +579,16 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 		dai_link->codec_dai_name, dai_props->codec_dai.sysclk);
 
 dai_link_of_err:
+	/* 修复：释放可能已获取的 of_node，避免引用泄漏 */
+	if (dai_link->platform_of_node &&
+	    dai_link->platform_of_node != dai_link->cpu_of_node)
+		of_node_put(dai_link->platform_of_node);
+	of_node_put(dai_link->codec_of_node);
+	of_node_put(dai_link->cpu_of_node);
+	dai_link->cpu_of_node = NULL;
+	dai_link->codec_of_node = NULL;
+	dai_link->platform_of_node = NULL;
+
 	of_node_put(cpu);
 	if (plat)
 		of_node_put(plat);
@@ -719,13 +732,18 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 	if (!priv->snd_card.name && priv->snd_card.num_links > 0)
 		priv->snd_card.name = priv->snd_card.dai_link->name;
 
+	/* 修复：先解析 smartamp，再注册 ext_hook，便于错误回滚 */
+	ret = sprd_asoc_card_parse_smartamp_boost(dev, &priv->boost_data);
+	if (ret)
+		return ret;
+
 	ret = sprd_asoc_card_parse_ext_hook(dev, &priv->ext_hook);
 	if (!ret)
 		sprd_asoc_ext_hook_register(&priv->ext_hook);
 	else if (ret == -EPROBE_DEFER)
 		return ret;
 
-	return sprd_asoc_card_parse_smartamp_boost(dev, &priv->boost_data);
+	return 0;
 }
 
 /* Decrease the reference count of the device nodes */
@@ -780,9 +798,10 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
             num_links = of_get_child_count(dai_container);
             of_node_put(dai_container);
         } else {
-            num_links = 0;
             const char *prefix = "sprd-audio-card,dai-link";
             int prefix_len = strlen(prefix);
+        
+            num_links = 0;
             for_each_child_of_node(np, child) {
                 if (strncmp(child->name, prefix, prefix_len) == 0)
                     num_links++;
@@ -800,6 +819,9 @@ int asoc_sprd_card_probe(struct platform_device *pdev,
 			    GFP_KERNEL);
 	if (!priv)
 		return -ENOMEM;
+
+	/* 修复：让 priv->dai_link 指向数组起始地址 */
+	priv->dai_link = (struct snd_soc_dai_link *)(priv + 1);
 
 	/* Init snd_soc_card */
 	priv->snd_card.owner = THIS_MODULE;
