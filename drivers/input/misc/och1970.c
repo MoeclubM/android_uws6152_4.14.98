@@ -201,62 +201,6 @@ static void och1970_odinten(bool flage)
     och1970_i2c_write(OCH1970_REG_CNTL1, 2, now_value);
 }
 
-static void och1970_get_x_data(void)
-{
-    uint8_t och1970_x_data_array[4] = {0};
-
-    och1970_i2c_read(OCH1970_REG_DATAX, 4, och1970_x_data_array);
-    t_och1970->x_data = (int16_t)(((uint16_t)och1970_x_data_array[2]<<8) | (uint16_t)och1970_x_data_array[3]);
-
-}
-
-static void och1970_get_y_data(void)
-{
-    uint8_t och1970_y_data_array[4] = {0};
-
-    och1970_i2c_read(OCH1970_REG_DATAY, 4, och1970_y_data_array);
-    t_och1970->y_data = (int16_t)(((uint16_t)och1970_y_data_array[2]<<8) | (uint16_t)och1970_y_data_array[3]);
-
-}
-
-static void och1970_get_z_data(void)
-{
-    uint8_t och1970_z_data_array[4] = {0};
-
-    och1970_i2c_read(OCH1970_REG_DATAZ, 4, och1970_z_data_array);
-    t_och1970->z_data = (int16_t)(((uint16_t)och1970_z_data_array[2]<<8) | (uint16_t)och1970_z_data_array[3]);
-}
-
-static void och1970_get_xy_data(void)
-{
-    uint8_t och1970_xy_data_array[6] = {0};
-
-    och1970_i2c_read(OCH1970_REG_DATAX_Y, 6, och1970_xy_data_array);
-    t_och1970->x_data = (int16_t)(((uint16_t)och1970_xy_data_array[4]<<8) | (uint16_t)och1970_xy_data_array[5]);
-    t_och1970->y_data = (int16_t)(((uint16_t)och1970_xy_data_array[2]<<8) | (uint16_t)och1970_xy_data_array[3]);
-
-}
-
-static void och1970_get_xz_data(void)
-{
-    uint8_t och1970_xz_data_array[6] = {0};
-
-    och1970_i2c_read(OCH1970_REG_DATAX_Z, 6, och1970_xz_data_array);
-    t_och1970->x_data = (int16_t)(((uint16_t)och1970_xz_data_array[4]<<8) | (uint16_t)och1970_xz_data_array[5]);
-    t_och1970->z_data = (int16_t)(((uint16_t)och1970_xz_data_array[2]<<8) | (uint16_t)och1970_xz_data_array[3]);
-
-}
-
-static void och1970_get_yz_data(void)
-{
-    uint8_t och1970_yz_data_array[6] = {0};
-
-    och1970_i2c_read(OCH1970_REG_DATAY_Z, 6, och1970_yz_data_array);
-    t_och1970->y_data = (int16_t)(((uint16_t)och1970_yz_data_array[4]<<8) | (uint16_t)och1970_yz_data_array[5]);
-    t_och1970->z_data = (int16_t)(((uint16_t)och1970_yz_data_array[2]<<8) | (uint16_t)och1970_yz_data_array[3]);
-
-}
-
 static void och1970_get_xyz_data(void)
 {
     uint8_t och1970_xyz_data_array[8] = {0};
