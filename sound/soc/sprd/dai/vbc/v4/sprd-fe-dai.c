@@ -48,6 +48,47 @@
 
 #define TO_STRING(e) #e
 
+/* ---------- 补充缺失的 MCDT 功能通道宏定义 ---------- */
+#define MCDT_CHAN_DSP_CAP               MCDT_CHAN0
+#define MCDT_CHAN_FAST_PLAY             MCDT_CHAN1
+#define MCDT_CHAN_LOOP                  MCDT_CHAN2
+#define MCDT_CHAN_VOIP                  MCDT_CHAN3
+#define MCDT_CHAN_A2DP_PCM              MCDT_CHAN4
+#define MCDT_CHAN_VOICE_CAPTURE         MCDT_CHAN5
+#define MCDT_CHAN_DSP_FM_CAP            MCDT_CHAN6
+#define MCDT_CHAN_DSP_BTSCO_CAP         MCDT_CHAN7
+#define MCDT_CHAN_RECOGNISE_CAPTURE     MCDT_CHAN8
+#define MCDT_CHAN_VOICE_PCM_P           MCDT_CHAN9
+
+/* 水印值 */
+#define MCDT_FULL_WMK_DSP_CAP           128
+#define MCDT_EMPTY_WMK_FAST_PLAY        128
+#define MCDT_EMPTY_WMK_LOOP             128
+#define MCDT_FULL_WMK_LOOP              128
+#define MCDT_EMPTY_WMK_VOIP             128
+#define MCDT_FULL_WMK_VOIP              128
+#define MCDT_EMPTY_WMK_A2DP_PCM         128
+#define MCDT_FULL_WMK_VOICE_CAPTURE     128
+#define MCDT_FULL_WMK_DSP_FM_CAP        128
+#define MCDT_FULL_WMK_DSP_BTSCO_CAP     128
+#define MCDT_FULL_WMK_RECOGNISE_CAPTURE 128
+#define MCDT_EMPTY_WMK_VOICE_PCM_P      128
+
+/* 片断大小 (bytes) */
+#define MCDT_DSPCAP_FRAGMENT            0x1000
+#define MCDT_FAST_PLAY_FRAGMENT         0x1000
+#define MCDT_LOOP_P_FRAGMENT            0x1000
+#define MCDT_LOOP_C_FRAGMENT            0x1000
+#define MCDT_VOIP_P_FRAGMENT            0x1000
+#define MCDT_VOIP_C_FRAGMENT            0x1000
+#define MCDT_A2DP_PCM_FRAGMENT          0x1000
+#define MCDT_VOICE_C_FRAGMENT           0x1000
+#define MCDT_DSPFMCAP_FRAGMENT          0x1000
+#define MCDT_DSPBTSCOCAP_FRAGMENT       0x1000
+#define MCDT_RECOGNISE_C_FRAGMENT       0x1000
+#define MCDT_VOICE_PCM_P_FRAGMENT       0x1000
+/* ---------- 宏定义结束 ---------- */
+
 static struct sprd_pcm_dma_params vbc_pcm_normal_ap01_p;
 static struct sprd_pcm_dma_params vbc_pcm_normal_ap01_c;
 static struct sprd_pcm_dma_params vbc_pcm_normal_ap23_p;
@@ -67,6 +108,10 @@ static struct sprd_pcm_dma_params vbc_pcm_dump;
 static struct sprd_pcm_dma_params vbc_btsco_cap_ap;
 static struct sprd_pcm_dma_params vbc_pcm_recognise_capture_mcdt;
 static struct sprd_pcm_dma_params pcm_voice_play_mcdt;
+
+/* HFP 前后端 DMA 参数 */
+static struct sprd_pcm_dma_params vbc_pcm_hfp_p;
+static struct sprd_pcm_dma_params vbc_pcm_hfp_c;
 
 static const char *stream_to_str(int stream)
 {
@@ -122,9 +167,14 @@ static void mcdt_dma_deinit(struct snd_soc_dai *fe_dai, int stream)
 	case FE_DAI_ID_A2DP_OFFLOAD:
 	case FE_DAI_ID_VOICE:
 	case FE_DAI_ID_FM_DSP:
-	case FE_DAI_ID_HFP:
 	default:
-	break;
+		break;
+	case FE_DAI_ID_HFP:
+		if (is_playback)
+			mcdt_dac_dma_disable(MCDT_CHAN_VOICE_PCM_P);
+		else
+			mcdt_adc_dma_disable(MCDT_CHAN_RECOGNISE_CAPTURE);
+		break;
 	case FE_DAI_ID_CAPTURE_DSP:
 		mcdt_adc_dma_disable(MCDT_CHAN_DSP_CAP);
 		break;
@@ -175,9 +225,19 @@ static int mcdt_dma_config_init(struct snd_soc_dai *fe_dai, int stream)
 	case FE_DAI_ID_A2DP_OFFLOAD:
 	case FE_DAI_ID_VOICE:
 	case FE_DAI_ID_FM_DSP:
-	case FE_DAI_ID_HFP:
 	default:
 		uid = 0;
+		break;
+	case FE_DAI_ID_HFP:
+		if (is_playback) {
+			uid = mcdt_dac_dma_enable(MCDT_CHAN_VOICE_PCM_P,
+				MCDT_EMPTY_WMK_VOICE_PCM_P);
+			vbc_pcm_hfp_p.channels[0] = uid;
+		} else {
+			uid = mcdt_adc_dma_enable(MCDT_CHAN_RECOGNISE_CAPTURE,
+				MCDT_FULL_WMK_RECOGNISE_CAPTURE);
+			vbc_pcm_hfp_c.channels[0] = uid;
+		}
 		break;
 	case FE_DAI_ID_CAPTURE_DSP:
 		uid = mcdt_adc_dma_enable(MCDT_CHAN_DSP_CAP,
@@ -283,11 +343,31 @@ static void sprd_dma_config(struct snd_pcm_substream *substream,
 	case FE_DAI_ID_A2DP_OFFLOAD:
 	case FE_DAI_ID_VOICE:
 	case FE_DAI_ID_FM_DSP:
-	case FE_DAI_ID_HFP:
 	default:
 		pr_info("%s %s do not use dma\n", __func__,
 			fe_dai_id_to_str(fe_dai->id));
-	break;
+		break;
+	case FE_DAI_ID_HFP:
+		if (is_playback) {
+			vbc_pcm_hfp_p.name = "VBC HFP P";
+			vbc_pcm_hfp_p.irq_type = SPRD_DMA_BLK_INT;
+			vbc_pcm_hfp_p.desc.datawidth = DMA_SLAVE_BUSWIDTH_4_BYTES;
+			vbc_pcm_hfp_p.desc.fragmens_len = MCDT_VOICE_PCM_P_FRAGMENT;
+			vbc_pcm_hfp_p.use_mcdt = 1;
+			vbc_pcm_hfp_p.dev_paddr[0] =
+				mcdt_dac_dma_phy_addr(MCDT_CHAN_VOICE_PCM_P);
+			vbc_pcm_hfp_p.used_dma_channel_name[0] = "hfp_p";
+		} else {
+			vbc_pcm_hfp_c.name = "VBC HFP C";
+			vbc_pcm_hfp_c.irq_type = SPRD_DMA_BLK_INT;
+			vbc_pcm_hfp_c.desc.datawidth = DMA_SLAVE_BUSWIDTH_4_BYTES;
+			vbc_pcm_hfp_c.desc.fragmens_len = MCDT_RECOGNISE_C_FRAGMENT;
+			vbc_pcm_hfp_c.use_mcdt = 1;
+			vbc_pcm_hfp_c.dev_paddr[0] =
+				mcdt_adc_dma_phy_addr(MCDT_CHAN_RECOGNISE_CAPTURE);
+			vbc_pcm_hfp_c.used_dma_channel_name[0] = "hfp_c";
+		}
+		break;
 	case FE_DAI_ID_NORMAL_AP01:
 		if (is_playback) {
 			/*normal ap01 playback*/
@@ -630,9 +710,11 @@ struct sprd_pcm_dma_params *get_dma_data_params(struct snd_soc_dai *fe_dai,
 	case FE_DAI_ID_VOICE:
 	case FE_DAI_ID_FM:
 	case FE_DAI_ID_FM_DSP:
-	case FE_DAI_ID_HFP:
 	default:
 		dma_data = NULL;
+		break;
+	case FE_DAI_ID_HFP:
+		dma_data = is_playback ? &vbc_pcm_hfp_p : &vbc_pcm_hfp_c;
 		break;
 	case FE_DAI_ID_NORMAL_AP01:
 		dma_data = is_playback ? &vbc_pcm_normal_ap01_p :
@@ -1303,4 +1385,3 @@ late_initcall(sprd_fe_dai_driver_init);
 MODULE_DESCRIPTION("SPRD ASoC FRONT END CPU DAI");
 MODULE_AUTHOR("Lei Ning <lei.ning@unisoc.com>");
 MODULE_LICENSE("GPL");
-
