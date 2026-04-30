@@ -27,15 +27,22 @@ static int __set_clk_parents(struct device_node *node, bool clk_supplier)
 		       node);
 
 	for (index = 0; index < num_parents; index++) {
-		rc = of_parse_phandle_with_args(node, "assigned-clock-parents",
-					"#clock-cells",	index, &clkspec);
-		if (rc < 0) {
-			/* skip empty (null) phandles */
-			if (rc == -ENOENT)
-				continue;
-			else
-				return rc;
-		}
+        pr_err("DEBUG: __set_clk_parents node=%pOF, index=%d\n", node, index);
+    
+        rc = of_parse_phandle_with_fixed_args(node, "assigned-clock-parents",
+                                     0, index, &clkspec);
+        if (rc < 0) {
+            pr_err("DEBUG: of_parse_phandle_with_args(parents) failed, rc=%d\n", rc);
+            if (rc == -ENOENT)
+                continue;
+            else
+                return rc;
+        }
+    
+        pr_err("DEBUG: resolved parent phandle %u (%pOF), args_count=%u\n",
+               clkspec.np ? clkspec.np->phandle : 0,
+               clkspec.np,
+               clkspec.args_count);
 		if (clkspec.np == node && !clk_supplier)
 			return 0;
 		pclk = of_clk_get_from_provider(&clkspec);
@@ -46,8 +53,8 @@ static int __set_clk_parents(struct device_node *node, bool clk_supplier)
 			return PTR_ERR(pclk);
 		}
 
-		rc = of_parse_phandle_with_args(node, "assigned-clocks",
-					"#clock-cells", index, &clkspec);
+		rc = of_parse_phandle_with_fixed_args(node, "assigned-clocks",
+				     0, index, &clkspec);
 		if (rc < 0)
 			goto err;
 		if (clkspec.np == node && !clk_supplier) {
@@ -86,15 +93,44 @@ static int __set_clk_rates(struct device_node *node, bool clk_supplier)
 	u32 rate;
 
 	of_property_for_each_u32(node, "assigned-clock-rates", prop, cur, rate) {
-		if (rate) {
-			rc = of_parse_phandle_with_args(node, "assigned-clocks",
-					"#clock-cells",	index, &clkspec);
-			if (rc < 0) {
-				/* skip empty (null) phandles */
-				if (rc == -ENOENT)
-					continue;
-				else
-					return rc;
+        if (rate) {
+            struct property *ac_prop;
+            int ac_len = 0;
+            const __be32 *ac_val;
+    
+            // 打印当前节点
+            pr_err("DEBUG: __set_clk_rates node=%pOF, index=%d, rate=%u\n",
+                   node, index, rate);
+    
+            // 尝试读取 assigned-clocks 属性的内容
+            ac_prop = of_find_property(node, "assigned-clocks", &ac_len);
+            if (ac_prop) {
+                ac_val = ac_prop->value;
+                pr_err("DEBUG: assigned-clocks len=%d, first cells: %08x %08x %08x\n",
+                       ac_len,
+                       ac_len >= 4 ? be32_to_cpu(ac_val[0]) : 0,
+                       ac_len >= 8 ? be32_to_cpu(ac_val[1]) : 0,
+                       ac_len >= 12 ? be32_to_cpu(ac_val[2]) : 0);
+            } else {
+                pr_err("DEBUG: no assigned-clocks property\n");
+            }
+                
+            rc = of_parse_phandle_with_fixed_args(node, "assigned-clocks",
+                                                 0, index, &clkspec);
+            if (rc < 0) {
+                pr_err("DEBUG: of_parse_phandle_with_fixed_args failed, rc=%d\n", rc);
+                if (rc == -ENOENT)
+                    continue;
+                else
+                    return rc;
+            }
+    
+            // 成功解析后，打印 phandle 和参数
+            pr_err("DEBUG: resolved phandle %u (%pOF), args_count=%u, args[0]=%08x\n",
+                   clkspec.np ? clkspec.np->phandle : 0,
+                   clkspec.np,
+                   clkspec.args_count,
+                   clkspec.args_count > 0 ? clkspec.args[0] : 0);
 			}
 			if (clkspec.np == node && !clk_supplier)
 				return 0;
