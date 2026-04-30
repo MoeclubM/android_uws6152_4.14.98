@@ -533,7 +533,8 @@ static int och1970_input_init(struct och1970_data *och1970)
          OCH_ERR("%s: can't allocate device!\n", __func__);
          return -ENOMEM;
     }
-
+    
+    dev->dev.parent = &och1970->client->dev;
     dev->name = OCH1970_INPUT_NAME;
     dev->id.bustype = BUS_I2C;
     dev->evbit[0] = BIT_MASK(EV_REL);
