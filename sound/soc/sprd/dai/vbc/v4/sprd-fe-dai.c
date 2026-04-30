@@ -854,7 +854,7 @@ static const struct snd_soc_component_driver sprd_fe_dai_component = {
 	.name = "sprd-dai-fe",
 };
 
-static struct snd_soc_dai_driver sprd_fe_dais[FE_DAI_ID_MAX] = {
+static struct snd_soc_dai_driver sprd_fe_dais[] = {
 	/* 0: FE_DAI_ID_NORMAL_AP01 */
 	{
 		.id = FE_DAI_ID_NORMAL_AP01,

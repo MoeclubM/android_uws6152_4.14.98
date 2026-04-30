@@ -5474,7 +5474,7 @@ static struct snd_soc_dai_ops hfp_ops = {
 	.hw_free = scene_hfp_hw_free,
 };
 
-static struct snd_soc_dai_driver vbc_dais[BE_DAI_ID_MAX] = {
+static struct snd_soc_dai_driver vbc_dais[] = {
 	/* 0: BE_DAI_ID_NORMAL_AP01_CODEC */
 	{
 		.name = TO_STRING(BE_DAI_ID_NORMAL_AP01_CODEC),
