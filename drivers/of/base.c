@@ -1231,6 +1231,7 @@ int of_phandle_iterator_next(struct of_phandle_iterator *it)
 		if (it->cur + count > it->list_end) {
 			pr_err("%pOF: arguments longer than property\n",
 			       it->parent);
+			dump_stack();
 			goto err;
 		}
 	}
