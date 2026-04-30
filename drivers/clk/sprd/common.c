@@ -65,12 +65,21 @@ int sprd_clk_regmap_init(struct platform_device *pdev,
 	struct sprd_sip_svc_handle *svc_handle;
 	struct resource *res;
 
-	if (of_find_property(node, "sprd,syscon", NULL)) {
-		regmap = syscon_regmap_lookup_by_phandle(node, "sprd,syscon");
-		if (IS_ERR_OR_NULL(regmap)) {
-			pr_err("%s: failed to get syscon regmap\n", __func__);
-			return PTR_ERR(regmap);
-		}
+    if (of_find_property(node, "sprd,syscon", NULL)) {
+        struct device_node *syscon_np;
+    
+        syscon_np = of_parse_phandle(node, "sprd,syscon", 0);
+        if (!syscon_np) {
+            pr_err("%s: failed to parse sprd,syscon\n", __func__);
+            return -ENODEV;
+        }
+    
+        regmap = syscon_node_to_regmap(syscon_np);
+        of_node_put(syscon_np);
+        if (IS_ERR(regmap)) {
+            pr_err("%s: failed to get syscon regmap\n", __func__);
+            return PTR_ERR(regmap);
+        }
 	} else if (of_find_property(node, "sprd,sec-clk", NULL)) {
 		svc_handle = sprd_sip_svc_get_handle();
 		if (!svc_handle) {
