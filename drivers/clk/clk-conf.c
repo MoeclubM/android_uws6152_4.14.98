@@ -27,22 +27,23 @@ static int __set_clk_parents(struct device_node *node, bool clk_supplier)
 		       node);
 
 	for (index = 0; index < num_parents; index++) {
-        pr_err("DEBUG: __set_clk_parents node=%pOF, index=%d\n", node, index);
-    
-        rc = of_parse_phandle_with_fixed_args(node, "assigned-clock-parents",
-                                     0, index, &clkspec);
-        if (rc < 0) {
-            pr_err("DEBUG: of_parse_phandle_with_args(parents) failed, rc=%d\n", rc);
-            if (rc == -ENOENT)
-                continue;
-            else
-                return rc;
-        }
-    
-        pr_err("DEBUG: resolved parent phandle %u (%pOF), args_count=%u\n",
-               clkspec.np ? clkspec.np->phandle : 0,
-               clkspec.np,
-               clkspec.args_count);
+		pr_err("DEBUG: __set_clk_parents node=%pOF, index=%d\n", node, index);
+
+		rc = of_parse_phandle_with_fixed_args(node, "assigned-clock-parents",
+						     0, index, &clkspec);
+		if (rc < 0) {
+			pr_err("DEBUG: of_parse_phandle_with_args(parents) failed, rc=%d\n", rc);
+			if (rc == -ENOENT)
+				continue;
+			else
+				return rc;
+		}
+
+		pr_err("DEBUG: resolved parent phandle %u (%pOF), args_count=%u\n",
+		       clkspec.np ? clkspec.np->phandle : 0,
+		       clkspec.np,
+		       clkspec.args_count);
+
 		if (clkspec.np == node && !clk_supplier)
 			return 0;
 		pclk = of_clk_get_from_provider(&clkspec);
@@ -54,7 +55,7 @@ static int __set_clk_parents(struct device_node *node, bool clk_supplier)
 		}
 
 		rc = of_parse_phandle_with_fixed_args(node, "assigned-clocks",
-				     0, index, &clkspec);
+						     0, index, &clkspec);
 		if (rc < 0)
 			goto err;
 		if (clkspec.np == node && !clk_supplier) {
@@ -93,80 +94,69 @@ static int __set_clk_rates(struct device_node *node, bool clk_supplier)
 	u32 rate;
 
 	of_property_for_each_u32(node, "assigned-clock-rates", prop, cur, rate) {
-        if (rate) {
-            struct property *ac_prop;
-            int ac_len = 0;
-            const __be32 *ac_val;
-    
-            // 打印当前节点
-            pr_err("DEBUG: __set_clk_rates node=%pOF, index=%d, rate=%u\n",
-                   node, index, rate);
-    
-            // 尝试读取 assigned-clocks 属性的内容
-            ac_prop = of_find_property(node, "assigned-clocks", &ac_len);
-            if (ac_prop) {
-                ac_val = ac_prop->value;
-                pr_err("DEBUG: assigned-clocks len=%d, first cells: %08x %08x %08x\n",
-                       ac_len,
-                       ac_len >= 4 ? be32_to_cpu(ac_val[0]) : 0,
-                       ac_len >= 8 ? be32_to_cpu(ac_val[1]) : 0,
-                       ac_len >= 12 ? be32_to_cpu(ac_val[2]) : 0);
-            } else {
-                pr_err("DEBUG: no assigned-clocks property\n");
-            }
-                
-            rc = of_parse_phandle_with_fixed_args(node, "assigned-clocks",
-                                                 0, index, &clkspec);
-            if (rc < 0) {
-                pr_err("DEBUG: of_parse_phandle_with_fixed_args failed, rc=%d\n", rc);
-                if (rc == -ENOENT)
-                    continue;
-                else
-                    return rc;
-            }
-    
-            // 成功解析后，打印 phandle 和参数
-            pr_err("DEBUG: resolved phandle %u (%pOF), args_count=%u, args[0]=%08x\n",
-                   clkspec.np ? clkspec.np->phandle : 0,
-                   clkspec.np,
-                   clkspec.args_count,
-                   clkspec.args_count > 0 ? clkspec.args[0] : 0);
-			}
-			if (clkspec.np == node && !clk_supplier)
-				return 0;
+		if (rate) {
+			struct property *ac_prop;
+			int ac_len = 0;
+			const __be32 *ac_val;
 
-			clk = of_clk_get_from_provider(&clkspec);
-			if (IS_ERR(clk)) {
-				if (PTR_ERR(clk) != -EPROBE_DEFER)
-					pr_warn("clk: couldn't get clock %d for %pOF\n",
-						index, node);
-				return PTR_ERR(clk);
+			// 打印当前节点
+			pr_err("DEBUG: __set_clk_rates node=%pOF, index=%d, rate=%u\n",
+			       node, index, rate);
+
+			// 尝试读取 assigned-clocks 属性的内容
+			ac_prop = of_find_property(node, "assigned-clocks", &ac_len);
+			if (ac_prop) {
+				ac_val = ac_prop->value;
+				pr_err("DEBUG: assigned-clocks len=%d, first cells: %08x %08x %08x\n",
+				       ac_len,
+				       ac_len >= 4 ? be32_to_cpu(ac_val[0]) : 0,
+				       ac_len >= 8 ? be32_to_cpu(ac_val[1]) : 0,
+				       ac_len >= 12 ? be32_to_cpu(ac_val[2]) : 0);
+			} else {
+				pr_err("DEBUG: no assigned-clocks property\n");
 			}
 
-			rc = clk_set_rate(clk, rate);
-			if (rc < 0)
-				pr_err("clk: couldn't set %s clk rate to %u (%d), current rate: %lu\n",
-				       __clk_get_name(clk), rate, rc,
-				       clk_get_rate(clk));
-			clk_put(clk);
+			rc = of_parse_phandle_with_fixed_args(node, "assigned-clocks",
+							     0, index, &clkspec);
+			if (rc < 0) {
+				pr_err("DEBUG: of_parse_phandle_with_fixed_args failed, rc=%d\n", rc);
+				if (rc == -ENOENT)
+					continue;
+				else
+					return rc;
+			}
+
+			// 成功解析后，打印 phandle 和参数
+			pr_err("DEBUG: resolved phandle %u (%pOF), args_count=%u, args[0]=%08x\n",
+			       clkspec.np ? clkspec.np->phandle : 0,
+			       clkspec.np,
+			       clkspec.args_count,
+			       clkspec.args_count > 0 ? clkspec.args[0] : 0);
+		} // 结束 if(rate)
+
+		if (clkspec.np == node && !clk_supplier)
+			return 0;
+
+		clk = of_clk_get_from_provider(&clkspec);
+		if (IS_ERR(clk)) {
+			if (PTR_ERR(clk) != -EPROBE_DEFER)
+				pr_warn("clk: couldn't get clock %d for %pOF\n",
+					index, node);
+			return PTR_ERR(clk);
 		}
+
+		rc = clk_set_rate(clk, rate);
+		if (rc < 0)
+			pr_err("clk: couldn't set %s clk rate to %u (%d), current rate: %lu\n",
+			       __clk_get_name(clk), rate, rc,
+			       clk_get_rate(clk));
+		clk_put(clk);
+
 		index++;
 	}
 	return 0;
 }
 
-/**
- * of_clk_set_defaults() - parse and set assigned clocks configuration
- * @node: device node to apply clock settings for
- * @clk_supplier: true if clocks supplied by @node should also be considered
- *
- * This function parses 'assigned-{clocks/clock-parents/clock-rates}' properties
- * and sets any specified clock parents and rates. The @clk_supplier argument
- * should be set to true if @node may be also a clock supplier of any clock
- * listed in its 'assigned-clocks' or 'assigned-clock-parents' properties.
- * If @clk_supplier is false the function exits returning 0 as soon as it
- * determines the @node is also a supplier of any of the clocks.
- */
 int of_clk_set_defaults(struct device_node *node, bool clk_supplier)
 {
 	int rc;
