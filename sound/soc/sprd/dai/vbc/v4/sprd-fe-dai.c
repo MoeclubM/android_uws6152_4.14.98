@@ -78,7 +78,7 @@ static const char *stream_to_str(int stream)
 		"playback" : "capture";
 }
 
-static char *fe_dai_id_str[] = {
+static char *fe_dai_id_str[FE_DAI_ID_MAX] = {
 	[FE_DAI_ID_NORMAL_AP01] = TO_STRING(FE_DAI_ID_NORMAL_AP01),
 	[FE_DAI_ID_NORMAL_AP23] = TO_STRING(FE_DAI_ID_NORMAL_AP23),
 	[FE_DAI_ID_CAPTURE_DSP] = TO_STRING(FE_DAI_ID_CAPTURE_DSP),
