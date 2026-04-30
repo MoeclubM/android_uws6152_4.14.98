@@ -36,7 +36,7 @@
 /* Software reset bits in SPI_CFG: bit2 (soft_reset) and bit5 */
 #define DA217_SOFT_RESET_BITS  ((1 << 2) | (1 << 5))
 
-static const int da217_nscale = 2395019; /* 2.395019 m/s^2 per LSB */
+static const int da217_nscale = 2394180; /* 2.395019 m/s^2 per LSB */
 
 struct da217_match_data {
     const char *name;
