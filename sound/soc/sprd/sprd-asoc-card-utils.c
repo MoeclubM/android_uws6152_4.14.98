@@ -475,18 +475,25 @@ static int asoc_sprd_card_dai_link_of(struct device_node *node,
 	int ret, cpu_args;
 	u32 val;
 
+	dev_info(dev, "[DEBUG] dai_link_of: node=%s, is_top=%d\n",
+		 node->full_name, is_top_level_node);
+
 	/* For single DAI link & old style of DT node */
 	if (is_top_level_node)
 		prefix = "sprd-audio-card,";
 
 	snprintf(prop, sizeof(prop), "%scpu", prefix);
 	cpu = of_get_child_by_name(node, prop);
+	dev_info(dev, "[DEBUG]   looking for cpu child '%s': %s\n",
+		 prop, cpu ? cpu->full_name : "NULL");
 
 	snprintf(prop, sizeof(prop), "%splat", prefix);
 	plat = of_get_child_by_name(node, prop);
 
 	snprintf(prop, sizeof(prop), "%scodec", prefix);
 	codec = of_get_child_by_name(node, prop);
+	dev_info(dev, "[DEBUG]   looking for codec child '%s': %s\n",
+		 prop, codec ? codec->full_name : "NULL");
 
 	if (!cpu || !codec) {
 		ret = -EINVAL;
@@ -600,6 +607,8 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 		return -EINVAL;
 	}
 
+	dev_info(dev, "[DEBUG] parse_of: node=%s\n", node->full_name);
+
 	/* Parse the card name from DT */
 	snd_soc_of_parse_card_name(&priv->snd_card, "sprd-audio-card,name");
 
@@ -646,12 +655,15 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
 
     /* Single/Muti DAI link(s) & New style of DT node */
     dai_container = of_get_child_by_name(node, "sprd-audio-card,dai-link");
+    dev_info(dev, "[DEBUG] looking for container 'sprd-audio-card,dai-link': %s\n",
+    	     dai_container ? dai_container->full_name : "NULL");
     
     if (dai_container) {
         struct device_node *np = NULL;
         int i = 0;
     
         for_each_child_of_node(dai_container, np) {
+            dev_info(dev, "[DEBUG]   container child: %s\n", np->name);
             dev_dbg(dev, "\tlink %d:\n", i);
             ret = asoc_sprd_card_dai_link_of(np, priv, i, false);
             if (ret < 0) {
@@ -681,6 +693,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
         int needle_len = strlen(needle);
     
         for_each_child_of_node(node, np) {
+            dev_info(dev, "[DEBUG]   direct child: %s\n", np->name);
             /* 前缀匹配，兼容带 @ 地址的节点名 */
             if (strncmp(np->name, needle, needle_len) != 0)
                 continue;
@@ -708,6 +721,7 @@ static int asoc_sprd_card_parse_of(struct device_node *node,
             priv->snd_card.num_links = i;
             ret = 0;
         } else {
+            dev_info(dev, "[DEBUG] no new-style dai-links found, using old single-link mode\n");
             /* 真正的老式 DTS，无 dai-link 子节点 */
             ret = asoc_sprd_card_dai_link_of(node, priv, 0, true);
             if (ret < 0)
