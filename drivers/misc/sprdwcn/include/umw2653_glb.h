@@ -1,16 +1,15 @@
-#ifndef __SC2355_GLB_H__
-#define __SC2355_GLB_H__
+#ifndef __UMW2653_GLB_H__
+#define __UMW2653_GLB_H__
 
-#include <linux/kernel.h>
 #include "../sleep/slp_mgr.h"
 #include "mem_pd_mgr.h"
 #include "rdc_debug.h"
 
 /* log buf size */
-#define MDBG_RX_RING_SIZE		(96 * 1024)
+#define MDBG_RX_RING_SIZE		(64*1024)
 
 #define CP_START_ADDR		0x40500000
-#define CP_RESET_REG		0x40088288
+#define CP_RESET_REG		0x40930004
 #define CP_SDIO_PRIORITY_ADDR 0x40130150
 
 /* set sdio higher priority to visit iram */
@@ -24,15 +23,21 @@
 
 #define FIRMWARE_MAX_SIZE 0xf0c00
 #define WIFI_REG 0x60300004
-#define CHIPID_REG 0x4083c208
+#define CHIPID_REG 0x4082c208
 #define CALI_REG 0x70040000
 #define CALI_OFSET_REG 0x70040010
 #define MARLIN_AA_CHIPID 0x23550000
 #define MARLIN_AB_CHIPID 0x23550001
 #define MARLIN_AC_CHIPID 0x23550002
 #define MARLIN_AD_CHIPID 0x23550003
+#define MARLIN_3E_CHIPID 0x56630000
 
+#ifdef CONFIG_WCN_USB
+#define CARD_DETECT_WAIT_MS	30000
+#else
 #define CARD_DETECT_WAIT_MS	3000
+#endif
+
 #define DCACHE_CMD_ISSUE_START 0X80000000
 #define DCACHE_CMD_CLEAN_ALL 0X00000000
 #define DCACHE_CMD_CLEAN_INVALID_ALL 0X00000008
@@ -50,42 +55,38 @@
 #define DCACHE_SIZE_SEL_MASK 0X30000000
 
 #define DUMP_PACKET_SIZE		(32 * 1024)
-#define DUMP_SDIO_ADDR			0x40140000
-#define DUMP_SDIO_ADDR_SIZE		0x10000
+#define DUMP_SDIO_ADDR			(0x40140000)
+#define DUMP_SDIO_ADDR_SIZE		(0x10000)
 /* for wifi */
-#define DUMP_WIFI_AON_MAC_ADDR			0x400f0000
-#define WIFI_AON_MAC_SIZE		0x108
-#define DUMP_WIFI_REF_ADDR			0x4083c000
-#define DUMP_WIFI_REF_ADDR_SIZE			0x350
-#define DUMP_WIFI_RTN_PD_MAC_ADDR		0x400f1000
-#define DUMP_WIFI_RTN_PD_MAC_ADDR_SIZE		0xD100
-#define DUMP_WIFI_352K_RAM_ADDR			0x40300000
-#define WIFI_RAM_SIZE		0x58000
+#define DUMP_WIFI_AON_MAC_ADDR			(0x400f0000)
+#define WIFI_AON_MAC_SIZE		(0x108)
+#define DUMP_WIFI_REF_ADDR			(0x4083c000)
+#define DUMP_WIFI_REF_ADDR_SIZE			(0x350)
+#define DUMP_WIFI_RTN_PD_MAC_ADDR		(0x400f1000)
+#define DUMP_WIFI_RTN_PD_MAC_ADDR_SIZE		(0xD100)
+#define DUMP_WIFI_352K_RAM_ADDR			(0x40300000)
+#define WIFI_RAM_SIZE		(0x58000)
 #define WIFI_GLB_REG_SIZE	0x4c
-#define CHIP_SLP				0X4083C00C
-#define WIFI_WRAP_PWRON			BIT(14)
-#define WIFI_PHY_PWRON				BIT(15)
-#define WIFI_MAC_PWRON				BIT(16)
+#define CHIP_SLP				(0X4083C00C)
+#define WIFI_WRAP_PWRON				(1 << 14)
+#define WIFI_PHY_PWRON				(1 << 15)
+#define WIFI_MAC_PWRON				(1 << 16)
 #define WIFI_ALL_PWRON	(WIFI_MAC_PWRON | WIFI_WRAP_PWRON)
-#define PD_WIFI_AON_CFG4			0x4083c088
-#define PD_WIFI_MAC_AON_CFG4			0X4083C0A8
-#define PD_WIFI_PHY_AON_CFG4			0x4083C0B8
-#define WIFI_MAC_RTN_SLEEPPS_CTL		0x400f4704
-#define WIFI_RETENTION				BIT(0)
-#define WIFI_WRAP_PWR_DOWN			BIT(1)
-#define WIFI_MAC_PWR_DOWN			BIT(2)
-#define WIFI_PHY_PWR_DOWN			BIT(2)
-#define AHB_EB0					0x40130004
-#define WIFI_EN					BIT(5)
-#define WIFI_MAC_EN				BIT(9)
-#define WIFI_ALL_EN				(WIFI_EN | WIFI_MAC_EN)
-#define BT_EN					BIT(4)
-#define CLK_CTRL0				0x4083c040
-#define APLL_PDN				(1 << 0)
-#define BPLL_PDN				(1 << 1)
-#define CLK_CTRL3				0x4083c04c
-#define CGM_BT_32M_EN				BIT(18)
-#define CGM_BT_64M_EN				BIT(19)
+#define PD_WIFI_AON_CFG4			(0x4083c088)
+#define PD_WIFI_MAC_AON_CFG4			(0X4083C0A8)
+#define PD_WIFI_PHY_AON_CFG4			(0x4083C0B8)
+#define WIFI_MAC_RTN_SLEEPPS_CTL		(0x400f4704)
+#define WIFI_RETENTION				(1 << 0)
+#define WIFI_WRAP_PWR_DOWN			(1 << 1)
+#define WIFI_MAC_PWR_DOWN			(1 << 2)
+#define WIFI_PHY_PWR_DOWN			(1 << 2)
+#define WIFI_ENABLE				(0x40130004)
+#define WIFI_EN					(1 << 5)
+#define WIFI_MAC_EN				(1 << 9)
+#define WIFI_ALL_EN		(WIFI_EN | WIFI_MAC_EN)
+#define CLK_CTRL0			0x4083c040
+#define APLL_PDN			(1 << 0)
+#define BPLL_PDN			(1 << 1)
 
 /* for BT */
 #define BT_ACC_ADDR			(0x40240000)
@@ -214,38 +215,42 @@
 #define CM4_DAP1_EB 0X80000000	/* BIT31 */
 
 #define PD_GNSS_SS_AON_CFG4 (AON_APB_BASE_ADDR + 0X00c8)
-#define PD_AUTO_EN		BIT(12)
-#define FORCE_DEEP_SLEEP	BIT(3)
-#define GNSS_SS_POWER_DOWN	BIT(2)/* NO USE */
-#define CHIP_DEEP_SLP_EN	BIT(1)
+#define PD_AUTO_EN		(1 << 12)
+#define FORCE_DEEP_SLEEP	(1 << 3)
+#define GNSS_SS_POWER_DOWN	(1 << 2)/* NO USE */
+#define CHIP_DEEP_SLP_EN	(1 << 1)
 
-#define SYNC_ADDR		0x405F0BB0
+#define SYNC_ADDR		0x40525FA0
 #define SYNC_IN_PROGRESS	0xF0F0F0F0
 #define SYNC_CALI_WAITING	0xF0F0F0F1
 #define SYNC_CALI_WRITE_DONE	0xF0F0F0F2
 #define SYNC_ALL_FINISHED	0xF0F0F0FF
 #define CHIP_SLP_REG		(AON_APB_BASE_ADDR + 0X000c)
-#define GNSS_SS_PWRON_FINISH	BIT(12)
-#define GNSS_PWR_FINISH	BIT(13)
+#define GNSS_SS_PWRON_FINISH	(1 << 12)
+#define GNSS_PWR_FINISH	(1 << 13)
 
 #define CGM_GNSS_FAKE_CFG (0x40844200 + 0X0104)
-#define CGM_GNSS_FAKE_SEL 0x3
+#define CGM_GNSS_FAKE_SEL (0x3)
 
 /* for sleep/wakeup */
-#define REG_CP_SLP_CTL		0x1a2
+#define REG_CP_SLP_CTL		0x1aa
+#define REG_CP_PMU_SEL_CTL	0x1a3
 #define REG_AP_INT_CP0		0x1b0
 #define REG_PUB_INT_EN0		0x1c0
 #define REG_PUB_INT_CLR0	0x1d0
 #define REG_PUB_INT_STS0	0x1f0
 /* BIT4~7, if value 0, stand for in deepsleep */
-#define REG_BTWF_SLP_STS	0x148
+#define REG_BTWF_SLP_STS	0x143
 #define BTWF_IN_DEEPSLEEP	0x0
 /* fm playing in deep, and xtl on */
-#define BTWF_IN_DEEPSLEEP_XLT_ON	0x30
-
+#define BTWF_IN_DEEPSLEEP_XLT_ON	0x3
+#define BTWF_XLT_WAIT		0x1
+#define BTWF_XLTBUF_WAIT	0x2
+#define BTWF_PLL_PWR_WAIT	0x4
+#define  SLEEP_STATUS_FLAG     0x0F
 /* For power save */
 #define REG_WIFI_MEM_CFG1	0x4083c130
-#define FORCE_SHUTDOWN_BTRAM	BIT(22)
+#define FORCE_SHUTDOWN_BTRAM	(1 << 22)
 
 /* For FM Spue freq */
 #define FM_REG_SPUR_FEQ1_ADDR			0x40098104
@@ -254,12 +259,18 @@
 
 /*
  * For SPI interface
- * bit[15]:1'b0: BUFFER mode,outside clock
- * bit[15]:1'b1: XO mode,Crystal/TSX mode
+ * bit[15]:1'b0: TCXO mode, outside clock
+ * bit[15]:1'b1: Crystal/TSX mode
  */
 #define SPI_BASE_ADDR		0x408a0000
 #define AD_DCXO_BONDING_OPT	0x5030
-#define WCN_BOUND_XO_MODE	BIT(15)
-#define SPI_BIT31		BIT(31)
+#define tsx_mode		(1 << 15)
+#define SPI_BIT31		(1 << 31)
+
+#ifdef CONFIG_UMW2653
+#define RESET_BIT		(1<<20)
+#else
+#define RESET_BIT		(1<<0)
+#endif
 
 #endif

@@ -257,11 +257,13 @@ static int pcie_cmd_proc(struct char_drv_info *dev, unsigned char *input,
 			WCN_ERR("ibreg(0) NULL\n");
 			return -1;
 		}
-		ibreg->lower_target_addr = 0x40000000;
-		ibreg->upper_target_addr = 0x00000000;
-		ibreg->type = 0x00000000;
-		ibreg->limit = 0x00FFFFFF;
-		ibreg->en = 0xc0000000;
+
+		writel(0x40000000, &ibreg->lower_target_addr);
+		writel(0x00000000, &ibreg->upper_target_addr);
+		writel(0x00000000, &ibreg->type);
+		writel(0x00FFFFFF, &ibreg->limit);
+		writel(0xc0000000, &ibreg->en);
+
 		replay->t = 1;
 		replay->l = sizeof(struct inbound_reg);
 		hwcopy(replay->v, (unsigned char *)ibreg, replay->l);
@@ -353,10 +355,15 @@ static int pcie_cmd_proc(struct char_drv_info *dev, unsigned char *input,
 		WCN_INFO("inbound(%d,%ld,%d)\n", offset, size, run);
 
 		mem = kmalloc(size, GFP_KERNEL);
+		if (!mem) {
+			WCN_ERR("kmalloc mem (%ld) err\n", size);
+			return -1;
+		}
 		buf = kmalloc(size, GFP_KERNEL);
-		if ((!mem) || (!buf)) {
-			WCN_ERR("kmalloc(%ld) err\n", size);
-			return 0;
+		if (!buf) {
+			WCN_ERR("kmalloc buf (%ld) err\n", size);
+			kfree(mem);
+			return -1;
 		}
 		for (i = 0; i < run; i++) {
 			memcpy(buf + 0, (char *)(&i), 4);

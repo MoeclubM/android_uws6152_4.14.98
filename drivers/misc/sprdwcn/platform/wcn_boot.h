@@ -1,9 +1,19 @@
+/* SPDX-License-Identifier: GPL-2.0 */
+
 #ifndef _WCN_BOOT
 #define _WCN_BOOT
 
 #include <misc/marlin_platform.h>
 
 #include "rf/rf.h"
+
+#define SUFFIX "androidboot.slot_suffix="
+
+#ifdef pr_fmt
+#undef pr_fmt
+#endif
+
+#define pr_fmt(fmt) "WCN BOOT: " fmt
 
 struct wcn_sync_info_t {
 	unsigned int init_status;
@@ -89,7 +99,7 @@ struct marlin_device {
 	bool is_btwf_in_sysfs;
 	bool is_gnss_in_sysfs;
 	int wifi_need_download_ini_flag;
-	int first_power_on_flag;
+	int first_power_on_ready;
 	atomic_t download_finish_flag;
 	unsigned char gnss_dl_finish_flag;
 	int loopcheck_status_change;
@@ -97,6 +107,10 @@ struct marlin_device {
 	struct tsx_cali tsxcali;
 	char *btwf_path;
 	char *gnss_path;
+	phys_addr_t	base_addr_btwf;
+	uint32_t	maxsz_btwf;
+	phys_addr_t	base_addr_gnss;
+	uint32_t	maxsz_gnss;
 };
 
 struct wifi_calibration {

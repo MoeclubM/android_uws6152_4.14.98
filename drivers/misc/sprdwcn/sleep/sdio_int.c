@@ -216,7 +216,7 @@ int sdio_pub_int_regcb(enum PUB_INT_BIT bit,
 
 	sdio_int.pub_int_cb[bit] = isr_handler;
 
-	WCN_ERR("0X%x pub_int_RegCb\n", bit);
+	WCN_INFO("0X%x pub_int_RegCb\n", bit);
 
 	return 0;
 }
@@ -310,7 +310,8 @@ int sdio_pub_int_deinit(void)
 	sdio_power_notify = false;
 	disable_irq(sdio_int.pub_int_num);
 	free_irq(sdio_int.pub_int_num, NULL);
-	wakeup_source_destroy(sdio_int.pub_int_wakelock);
+	wakeup_source_trash(sdio_int.pub_int_wakelock);
+	kfree(sdio_int.pub_int_wakelock);
 
 	WCN_INFO("%s ok!\n", __func__);
 

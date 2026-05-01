@@ -24,6 +24,8 @@
 
 static int wcn_open_module;
 static int wcn_module_state_change;
+/* format: marlin2-built-in_id0_id1 */
+static char wcn_chip_name[40];
 char functionmask[8];
 marlin_reset_callback marlin_reset_func;
 void *marlin_callback_para;
@@ -44,7 +46,7 @@ enum wcn_aon_chip_id wcn_get_aon_chip_id(void)
 {
 	u32 aon_chip_id;
 	u32 version_id;
-	int i;
+	u32 i;
 	struct regmap *regmap;
 
 	if (unlikely(!s_wcn_device.btwf_device))
@@ -226,7 +228,7 @@ u32 wcn_platform_chip_type(void)
 
 u32 wcn_get_cp2_comm_rx_count(void)
 {
-	u32 rx_count;
+	u32 rx_count = 0;
 	phys_addr_t phy_addr;
 
 	phy_addr = s_wcn_device.btwf_device->base_addr +
@@ -249,6 +251,20 @@ int wcn_get_btwf_power_status(void)
 		 s_wcn_device.btwf_device->power_state);
 	return s_wcn_device.btwf_device->power_state;
 }
+
+int marlin_get_power(void)
+{
+	if (s_wcn_device.gnss_device &&
+	    s_wcn_device.gnss_device->power_state)
+		return 1;
+
+	if (s_wcn_device.btwf_device &&
+	    s_wcn_device.btwf_device->power_state)
+		return 1;
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(marlin_get_power);
 
 phys_addr_t wcn_get_btwf_init_status_addr(void)
 {
@@ -338,11 +354,20 @@ void wcn_set_module_state(bool status)
 		wcn_open_module = 1;
 	else
 		wcn_open_module = 0;
-	wcn_module_state_change = 1;
-	if (status)
-		loopcheck_ready_set();
 	wcn_set_download_status(status);
 	WCN_INFO("cp2 power status:%d\n", status);
+}
+
+void wcn_set_loopcheck_state(bool status)
+{
+	wcn_set_module_status_changed(true);
+	if (status) {
+		loopcheck_ready_set();
+		start_loopcheck();
+	} else if (!(s_wcn_device.btwf_device->wcn_open_status &
+		WCN_MARLIN_MASK)) {
+		stop_loopcheck();
+	}
 	wakeup_loopcheck_int();
 }
 
@@ -409,7 +434,7 @@ void wcn_regmap_read(struct regmap *cur_regmap,
 /* return val: 1 for send the cmd to CP2 */
 int wcn_send_force_sleep_cmd(struct wcn_device *wcn_dev)
 {
-	u32 val;
+	u32 val = 0;
 	phys_addr_t phy_addr;
 
 	phy_addr = wcn_dev->base_addr +
@@ -433,7 +458,7 @@ u32 wcn_get_sleep_status(struct wcn_device *wcn_dev, int force_sleep)
 {
 	u32 sleep_status = 0;
 	u32 wcn_sleep_status_mask = 0xf000;
-	u32 val;
+	u32 val = 0;
 	phys_addr_t phy_addr;
 
 	if (wcn_dev_is_marlin(wcn_dev) && force_sleep) {
@@ -514,6 +539,11 @@ int wcn_power_enable_sys_domain(bool enable)
 	u32 gnss_open = false;
 	static u32 sys_domain;
 
+	if (!s_wcn_device.btwf_device) {
+		WCN_ERR("dev is NULL\n");
+		return -ENODEV;
+	}
+
 	if (s_wcn_device.btwf_device &&
 	    s_wcn_device.btwf_device->wcn_open_status & WCN_MARLIN_MASK)
 		btwf_open = true;
@@ -587,7 +617,7 @@ void wcn_sys_soft_reset(void)
 		offset  = 0X10b0;
 		wcn_regmap_raw_write_bit(wcn_dev->rmap[REGMAP_PMU_APB],
 					 offset, bitmap);
-		WCN_INFO("finish\n");
+		WCN_INFO("%s finish\n", __func__);
 		usleep_range(WCN_CP_SOFT_RST_MIN_TIME,
 			     WCN_CP_SOFT_RST_MAX_TIME);
 	}
@@ -678,7 +708,7 @@ void wcn_sys_soft_release(void)
 		offset  = 0X20b0;
 		wcn_regmap_raw_write_bit(wcn_dev->rmap[REGMAP_PMU_APB],
 					 offset, bitmap);
-		WCN_INFO("finish!\n");
+		WCN_DBG("%s finish!\n", __func__);
 		usleep_range(WCN_CP_SOFT_RST_MIN_TIME,
 			     WCN_CP_SOFT_RST_MAX_TIME);
 	}
@@ -702,7 +732,7 @@ void wcn_sys_deep_sleep_en(void)
 			return;
 		}
 		wcn_regmap_raw_write_bit(rmap, 0x1244, 1 << 0);
-		WCN_INFO("finish!\n");
+		WCN_INFO("%s finish!\n", __func__);
 	}
 }
 
@@ -834,11 +864,22 @@ u32 wcn_parse_platform_chip_id(struct wcn_device *wcn_dev)
 			g_platform_chip_id.aon_chip_id0,
 			g_platform_chip_id.aon_chip_id1);
 
-	WCN_INFO("platform chip type: [%d]\n",
+	WCN_DBG("platform chip type: [%d]\n",
 		 g_platform_chip_type);
 
 	return 0;
 }
+
+const char *wcn_get_chip_name(void)
+{
+	snprintf(wcn_chip_name, sizeof(wcn_chip_name),
+		 "marlin2-built-in_0x%x_0x%x",
+		 g_platform_chip_id.aon_chip_id0,
+		 g_platform_chip_id.aon_chip_id1);
+
+	return wcn_chip_name;
+}
+EXPORT_SYMBOL_GPL(wcn_get_chip_name);
 
 void mdbg_hold_cpu(void)
 {

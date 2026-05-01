@@ -10,10 +10,13 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/uaccess.h>
+
 #include "bufring.h"
 #include "mdbg_type.h"
 #include "wcn_log.h"
 #include "../include/wcn_dbg.h"
+#include "rdc_debug.h"
 
 #define MDBG_RING_LOCK_INIT(ring)		mutex_init(ring->plock)
 #define MDBG_RING_LOCK_UNINIT(ring)		mutex_destroy(ring->plock)
@@ -58,7 +61,7 @@ bool mdbg_ring_over_loop(struct mdbg_ring_t *ring, u_long len, int rw)
 	return false;
 }
 
-struct mdbg_ring_t *mdbg_ring_alloc(long int size)
+struct mdbg_ring_t *mdbg_ring_alloc(unsigned long int size)
 {
 	struct mdbg_ring_t *ring = NULL;
 
@@ -72,7 +75,7 @@ struct mdbg_ring_t *mdbg_ring_alloc(long int size)
 			WCN_ERR("Ring malloc Failed.\n");
 			break;
 		}
-		ring->pbuff = kmalloc(size, GFP_KERNEL);
+		ring->pbuff = kmalloc((unsigned int)size, GFP_KERNEL);
 		if (ring->pbuff == NULL) {
 			WCN_ERR("Ring buff malloc Failed.\n");
 			break;
@@ -83,7 +86,7 @@ struct mdbg_ring_t *mdbg_ring_alloc(long int size)
 			break;
 		}
 		MDBG_RING_LOCK_INIT(ring);
-		memset(ring->pbuff, 0, size);
+		memset(ring->pbuff, 0, (unsigned int)size);
 		ring->size = size;
 		ring->rp = ring->pbuff;
 		ring->wp = ring->pbuff;
@@ -124,9 +127,9 @@ void mdbg_ring_destroy(struct mdbg_ring_t *ring)
 
 int mdbg_ring_read(struct mdbg_ring_t *ring, void *buf, int len)
 {
-	int len1, len2 = 0;
-	int cont_len = 0;
-	int read_len = 0;
+	unsigned int len1, len2 = 0;
+	long cont_len = 0;
+	unsigned int read_len = 0;
 	char *pstart = NULL;
 	char *pend = NULL;
 	static unsigned int total_len;
@@ -138,7 +141,8 @@ int mdbg_ring_read(struct mdbg_ring_t *ring, void *buf, int len)
 	}
 	MDBG_RING_LOCK(ring);
 	cont_len = mdbg_ring_readable_len(ring);
-	read_len = cont_len >= len ? len : cont_len;
+	read_len = (unsigned int)(cont_len >= len ? len :
+				  (unsigned int)cont_len);
 	pstart = mdbg_ring_start(ring);
 	pend = mdbg_ring_end(ring);
 	WCN_LOG("read_len=%d", read_len);
@@ -158,11 +162,13 @@ int mdbg_ring_read(struct mdbg_ring_t *ring, void *buf, int len)
 		WCN_LOG("Ring loopover.");
 		len1 = pend - ring->rp + 1;
 		len2 = read_len - len1;
-		if ((uintptr_t)buf > TASK_SIZE) {
+
+		/* if ((uintptr_t)buf > TASK_SIZE) */
+		if (!access_ok(VERIFY_READ, buf, len)) {
 			memcpy(buf, ring->rp, len1);
 			memcpy((buf + len1), pstart, len2);
 		} else if (copy_to_user((__force void __user *)buf,
-					(void *)ring->rp, len1) |
+					(void *)ring->rp, len1) ||
 			   copy_to_user((__force void __user *)(buf + len1),
 					(void *)pstart, len2)) {
 			WCN_ERR("copy to user error!\n");
@@ -178,7 +184,8 @@ int mdbg_ring_read(struct mdbg_ring_t *ring, void *buf, int len)
 				WCN_ERR("read overlay\n");
 		}
 
-		if ((uintptr_t)buf > TASK_SIZE)
+		/* if ((uintptr_t)buf > TASK_SIZE) */
+		if (!access_ok(VERIFY_READ, buf, len))
 			memcpy(buf, ring->rp, read_len);
 		else if (copy_to_user((__force void __user *)buf,
 				      (void *)ring->rp, read_len)) {
@@ -206,6 +213,14 @@ int mdbg_ring_read(struct mdbg_ring_t *ring, void *buf, int len)
  */
 int mdbg_ring_write(struct mdbg_ring_t *ring, void *buf, unsigned int len)
 {
+#ifdef CONFIG_WCN_RDCDBG
+	if (ring->is_mem == 1)
+		dumpmem_rx_callback(buf, len);
+	else
+		log_rx_callback(buf, len);
+
+	return len;
+#else
 	int len1, len2 = 0;
 	char *pstart = NULL;
 	char *pend = NULL;
@@ -243,12 +258,14 @@ int mdbg_ring_write(struct mdbg_ring_t *ring, void *buf, unsigned int len)
 	if (mdbg_ring_over_loop(ring, len, MDBG_RING_W)) {
 		WCN_LOG("Ring overloop.");
 		len1 = pend - ring->wp + 1;
-		len2 = (len - len1) % ring->size;
-		if ((uintptr_t)buf > TASK_SIZE) {
+		len2 = (((int)len - len1) % (int)ring->size);
+
+		/* if ((uintptr_t)buf > TASK_SIZE) */
+		if (!access_ok(VERIFY_READ, buf, len)) {
 			memcpy(ring->wp, buf, len1);
 			memcpy(pstart, (buf + len1), len2);
 		} else if (copy_from_user((void *)ring->wp,
-					  (__force void __user *)buf, len1) |
+					  (__force void __user *)buf, len1) ||
 			    copy_from_user((void *)pstart,
 				(__force void __user *)(buf + len1), len2)) {
 			WCN_ERR("%s copy from user error!\n", __func__);
@@ -256,11 +273,12 @@ int mdbg_ring_write(struct mdbg_ring_t *ring, void *buf, unsigned int len)
 			return -EFAULT;
 		}
 
-		ring->wp = (char *)((u_long)pstart + len2);
+		ring->wp = (char *)(pstart + len2);
 
 	} else{
 		/* RP > WP */
-		if ((uintptr_t)buf > TASK_SIZE)
+		/* if ((uintptr_t)buf > TASK_SIZE) */
+		if (!access_ok(VERIFY_READ, buf, len))
 			memcpy(ring->wp, buf, len);
 		else if (copy_from_user((void *)ring->wp,
 			    (__force void __user *)buf, len)) {
@@ -276,6 +294,23 @@ int mdbg_ring_write(struct mdbg_ring_t *ring, void *buf, unsigned int len)
 	WCN_LOG("<------end len = %d\n", len);
 
 	return len;
+#endif
+}
+
+/* @timeout unit is ms */
+int mdbg_ring_write_timeout(struct mdbg_ring_t *ring, void *buf,
+			    unsigned int len, unsigned int timeout)
+{
+	unsigned  int cnt = timeout / 20;
+
+	while (cnt > 0 && (mdbg_ring_free_space(ring) - 1) < len) {
+		msleep(20);
+		if (--cnt == 0)
+			WCN_ERR("ringbuf is full, tiemout:%u\n",
+				timeout);
+	}
+
+	return mdbg_ring_write(ring, buf, len);
 }
 
 char *mdbg_ring_write_ext(struct mdbg_ring_t *ring, long int len)
@@ -306,7 +341,7 @@ char *mdbg_ring_write_ext(struct mdbg_ring_t *ring, long int len)
 	return wp;
 }
 
-inline bool mdbg_ring_will_full(struct mdbg_ring_t *ring, int len)
+inline bool mdbg_ring_will_full(struct mdbg_ring_t *ring, long int len)
 {
 	return (len > mdbg_ring_free_space(ring));
 }
@@ -314,7 +349,7 @@ inline bool mdbg_ring_will_full(struct mdbg_ring_t *ring, int len)
 /* remain data for read */
 inline long int mdbg_ring_readable_len(struct mdbg_ring_t *ring)
 {
-	return ring->size - mdbg_ring_free_space(ring);
+	return (ring->size - ((u_long)mdbg_ring_free_space(ring)));
 }
 
 inline void mdbg_ring_clear(struct mdbg_ring_t *ring)

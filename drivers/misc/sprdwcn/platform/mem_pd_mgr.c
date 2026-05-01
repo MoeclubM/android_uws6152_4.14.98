@@ -116,7 +116,7 @@ unsigned int mem_pd_spinlock_unlock(int id)
 /* bit_start FORCE SHUTDOWN IRAM [16...31]*32K=512K
  * and bit_start++ bit_cnt how many 32k
  */
-static int mem_pd_power_switch(enum marlin_sub_sys subsys, int val)
+static int mem_pd_power_switch(enum wcn_sub_sys subsys, int val)
 {
 	int ret = 0;
 	unsigned int reg_val = 0;
@@ -405,7 +405,8 @@ static int sdio_ap_int_cp_save_cp_mem(void)
 static int mem_pd_read_add_from_cp(void)
 {
 	int ret;
-	unsigned int bt_begin, bt_end, wifi_begin, wifi_end;
+	unsigned int bt_begin = 0, bt_end = 0;
+	unsigned int wifi_begin = 0, wifi_end = 0;
 
 	ret = sprdwcn_bus_reg_read(SYNC_ADDR + BT_BEGIN_OFFSET_SYNC,
 				   &bt_begin, 4);
@@ -532,7 +533,7 @@ static int ap_int_cp_wifi_bin_done(int subsys)
 	return 0;
 }
 
-int test_mem_clrear(enum marlin_sub_sys subsys)
+int test_mem_clrear(enum wcn_sub_sys subsys)
 {
 	int err;
 
@@ -594,7 +595,7 @@ static int mem_pd_download_mem_bin(int subsys)
 
 	return 0;
 }
-int mem_pd_mgr(enum marlin_sub_sys subsys, int val)
+int mem_pd_mgr(enum wcn_sub_sys subsys, int val)
 {
 	if (mem_pd.cp_version)
 		return 0;

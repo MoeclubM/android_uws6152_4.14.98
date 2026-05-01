@@ -135,7 +135,7 @@ static ssize_t wcnlog_read(struct file *filp,
 	}
 
 	mutex_lock(&mdbg_dev->mdbg_lock);
-	read_size = mdbg_receive((void *)buf, (long int)count);
+	read_size = mdbg_receive((void *)buf, count);
 	if (sprdwcn_bus_get_carddump_status() == 1) {
 		dum_send_size += read_size;
 		WCN_INFO("read_size = %ld dum_total_size= %d,remainder =%ld\n",
@@ -238,7 +238,6 @@ static int wcnlog_register_device(struct wcnlog_dev *dev, int index)
 	cdev_init(&dev->cdev, &wcnlog_fops);
 	ret = cdev_add(&dev->cdev, devno, 1);
 	if (ret != 0) {
-		kfree(dev);
 		unregister_chrdev_region(devno, 1);
 		WCN_ERR("Failed to add wcn log cdev\n");
 		return ret;
@@ -345,8 +344,10 @@ int log_dev_init(void)
 	init_waitqueue_head(&mdbg_dev->rxwait);
 	init_waitqueue_head(&mdbg_wait);
 	err = mdbg_ring_init();
-	if (err < 0)
+	if (err < 0) {
+		kfree(mdbg_dev);
 		return -ENOMEM;
+	}
 
 	log_cdev_init();
 	mdbg_dev->exit_flag = 0;
