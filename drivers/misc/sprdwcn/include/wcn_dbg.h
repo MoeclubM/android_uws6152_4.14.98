@@ -13,16 +13,17 @@ extern u32 wcn_print_level;
 
 #define pr_fmt(fmt) "WCN BASE" fmt
 
-#define WCN_INFO(fmt, args...) do { \
-	if (wcn_print_level ==  WCN_DEBUG_ON)\
-		pr_info(" info: " fmt, ## args);\
-} while (0)
+#define WCN_INFO(fmt, args...)\
+	pr_info(": " fmt, ## args)
 
 #define WCN_ERR(fmt, args...)\
 	pr_err(" error: " fmt, ## args)
 
 #define WCN_DBG(fmt, args...)\
 	pr_debug(" dbg: " fmt, ## args)
+
+#define WCN_WARN(fmt, args...)\
+	pr_warn(" warning: " fmt, ## args)
 
 #define WCN_DEBUG(fmt, args...) do { \
 	if (wcn_print_level ==  WCN_DEBUG_ON)\

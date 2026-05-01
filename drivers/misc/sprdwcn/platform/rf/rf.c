@@ -514,7 +514,7 @@ static struct nvm_name_table *cf_table_match(struct nvm_cali_cmd *cmd)
 	struct nvm_name_table *pTable = NULL;
 	int len = sizeof(g_config_table) / sizeof(struct nvm_name_table);
 
-	if ((cmd == NULL) || (cmd->itm == NULL))
+	if (cmd == NULL)
 		return NULL;
 	for (i = 0; i < len; i++) {
 		if (g_config_table[i].itm == NULL)
@@ -533,7 +533,7 @@ static struct nvm_name_table *cali_table_match(struct nvm_cali_cmd *cmd)
 	struct nvm_name_table *pTable = NULL;
 	int len = sizeof(g_cali_table) / sizeof(struct nvm_name_table);
 
-	if ((cmd == NULL) || (cmd->itm == NULL))
+	if (cmd == NULL)
 		return NULL;
 	for (i = 0; i < len; i++) {
 		if (g_cali_table[i].itm == NULL)
@@ -597,6 +597,11 @@ static int wifi_nvm_parse(const char *path, const int type, void *p_data)
 	}
 
 	file_size = vfs_llseek(file, 0, SEEK_END);
+	if (file_size < 0) {
+		fput(file);
+		pr_err("vfs_llseek error\n");
+		return -1;
+	}
 	buffer_len = 0;
 	buffer = vmalloc(file_size);
 	p_buf = buffer;

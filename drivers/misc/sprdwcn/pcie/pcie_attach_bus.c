@@ -99,6 +99,17 @@ static void pcie_set_carddump_status(unsigned int flag)
 	return sprd_pcie_set_carddump_status(flag);
 }
 
+static int pcie_get_aspm_policy(void)
+{
+	return sprd_pcie_get_aspm_policy();
+}
+
+static int pcie_set_aspm_policy(enum sub_sys subsys,
+				enum wcn_bus_pm_state state)
+{
+	return sprd_pcie_set_aspm_policy(subsys, state);
+}
+
 static int pcie_rescan(void *wcn_dev)
 {
 	return sprd_pcie_scan_card(wcn_dev);
@@ -112,6 +123,11 @@ static void pcie_register_rescan_cb(void *func)
 static void pcie_remove_card(void *wcn_dev)
 {
 	return sprd_pcie_remove_card(wcn_dev);
+}
+
+static enum wcn_hard_intf_type pcie_get_hwintf_type(void)
+{
+	return HW_TYPE_PCIE;
 }
 
 static struct sprdwcn_bus_ops pcie_bus_ops = {
@@ -129,9 +145,12 @@ static struct sprdwcn_bus_ops pcie_bus_ops = {
 	.read_l = pcie_read32,
 	.write_l = pcie_write32,
 	.update_bits = pcie_update_bits,
+	.get_hwintf_type = pcie_get_hwintf_type,
 	.get_bus_status = pcie_get_bus_status,
 	.get_carddump_status = pcie_get_carddump_status,
 	.set_carddump_status = pcie_set_carddump_status,
+	.get_pm_policy = pcie_get_aspm_policy,
+	.set_pm_policy = pcie_set_aspm_policy,
 	.register_rescan_cb = pcie_register_rescan_cb,
 	.rescan = pcie_rescan,
 	.remove_card = pcie_remove_card,

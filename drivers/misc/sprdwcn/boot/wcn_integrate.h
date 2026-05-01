@@ -141,7 +141,8 @@ struct wcn_special_share_mem {
 	struct gnss_special_share_mem gnss;
 };
 
-typedef int (*marlin_reset_callback) (void *para);
+/* Already defined in include/misc/marlin_platform.h */
+//typedef int (*marlin_reset_callback) (void *para);
 
 extern struct platform_chip_id g_platform_chip_id;
 extern char functionmask[8];
@@ -180,7 +181,7 @@ void wcn_set_module_status_changed(bool status);
 int marlin_reset_register_notify(void *callback_func, void *para);
 int marlin_reset_unregister_notify(void);
 void wcn_set_module_state(bool status);
-
+void wcn_set_loopcheck_state(bool status);
 int wcn_send_force_sleep_cmd(struct wcn_device *wcn_dev);
 u32 wcn_get_sleep_status(struct wcn_device *wcn_dev, int force_sleep);
 void wcn_power_domain_set(struct wcn_device *wcn_dev, u32 set_type);

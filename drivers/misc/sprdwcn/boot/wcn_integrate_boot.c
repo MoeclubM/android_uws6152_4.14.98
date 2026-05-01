@@ -11,10 +11,9 @@
  * GNU General Public License for more details.
  */
 #include "../platform/gnss/gnss.h"
-#include "wcn_misc.h"
 #include "wcn_glb.h"
-#include "wcn_glb_reg.h"
 #include "wcn_gnss.h"
+#include "wcn_misc.h"
 #include "wcn_procfs.h"
 #include "../include/wcn_dbg.h"
 
@@ -23,6 +22,7 @@ static struct wifi_calibration wifi_data;
 
 static char gnss_firmware_parent_path[FIRMWARE_FILEPATHNAME_LENGTH_MAX];
 static char firmware_file_name[FIRMWARE_FILEPATHNAME_LENGTH_MAX];
+static char firmware_file_path[FIRMWARE_FILEPATHNAME_LENGTH_MAX];
 
 struct sprdwcn_gnss_ops *gnss_ops;
 
@@ -47,6 +47,13 @@ void wcn_device_poweroff(void)
 	WCN_INFO("all subsys power off finish!\n");
 }
 
+void wcn_chip_power_off(void)
+{
+	sprdwcn_bus_set_carddump_status(false);
+	wcn_device_poweroff();
+}
+EXPORT_SYMBOL_GPL(wcn_chip_power_off);
+
 static int wcn_get_firmware_path(char *firmwarename, char *firmware_path)
 {
 	if (!firmwarename || !firmware_path)
@@ -68,7 +75,8 @@ static int wcn_get_firmware_path(char *firmwarename, char *firmware_path)
 		folder_path_length = strlen(firmware_path)
 				     - strlen(WCN_BTWF_FILENAME);
 		*(firmware_path + folder_path_length) = 0;
-		strcpy(gnss_firmware_parent_path, firmware_path);
+		strncpy(gnss_firmware_parent_path, firmware_path,
+			sizeof(gnss_firmware_parent_path));
 
 	} else {
 		return -EINVAL;
@@ -154,8 +162,6 @@ static void gnss_write_version_data(void)
 				   GNSS_REC_AON_CHIPID_OFFSET;
 	wcn_write_data_to_phy_addr(phy_addr, &tmp_aon_id,
 				   GNSS_REC_AON_CHIPID_SIZE);
-
-	WCN_INFO("finish\n");
 }
 
 static int wcn_load_firmware_img(struct wcn_device *wcn_dev,
@@ -178,13 +184,13 @@ static int wcn_load_firmware_img(struct wcn_device *wcn_dev,
 				WCN_ERR("open file %s error\n", path);
 				return -EINVAL;
 			}
-			msleep(200);
+			ssleep(1);
 		} else {
 			break;
 		}
 	}
 
-	WCN_INFO("open image file %s  successfully\n", path);
+	WCN_INFO("open image file successfully\n");
 	/* read file to buffer */
 	size = len;
 	wcn_image_buffer = vmalloc(size);
@@ -249,7 +255,7 @@ read_retry:
 
 	vfree(wcn_image_buffer);
 
-	WCN_INFO("finish\n");
+	WCN_INFO("%s finish\n", __func__);
 
 	return 0;
 }
@@ -273,7 +279,9 @@ static int wcn_load_firmware_data(struct wcn_device *wcn_dev)
 	}
 	is_gnss = wcn_dev_is_gnss(wcn_dev);
 	if (is_gnss) {
-		strcpy(wcn_dev->firmware_path, gnss_firmware_parent_path);
+		memset(wcn_dev->firmware_path, 0, FIRMWARE_FILEPATHNAME_LENGTH_MAX);
+		strncpy(wcn_dev->firmware_path, gnss_firmware_parent_path,
+			sizeof(wcn_dev->firmware_path));
 		strcat(wcn_dev->firmware_path, wcn_dev->firmware_path_ext);
 		WCN_INFO("gnss path=%s\n", wcn_dev->firmware_path);
 		gnss_file_path_set(wcn_dev->firmware_path);
@@ -301,15 +309,18 @@ static int wcn_download_image(struct wcn_device *wcn_dev)
 
 	if (!is_marlin) {
 		if (s_wcn_device.gnss_type == WCN_GNSS_TYPE_GL)
-			strcpy(firmware_file_name, WCN_GNSS_FILENAME);
+			strncpy(firmware_file_name, WCN_GNSS_FILENAME,
+				sizeof(firmware_file_name));
 		else if (s_wcn_device.gnss_type == WCN_GNSS_TYPE_BD)
-			strcpy(firmware_file_name, WCN_GNSS_BD_FILENAME);
+			strncpy(firmware_file_name, WCN_GNSS_BD_FILENAME,
+				sizeof(firmware_file_name));
 		else
 			return -EINVAL;
 	}
 
 	if (is_marlin)
-		strcpy(firmware_file_name, WCN_BTWF_FILENAME);
+		strncpy(firmware_file_name, WCN_BTWF_FILENAME,
+			sizeof(firmware_file_name));
 
 	strcat(firmware_file_name, ".bin");
 	WCN_INFO("loading image [%s] from firmware subsystem ...\n",
@@ -341,32 +352,51 @@ static int wcn_download_image(struct wcn_device *wcn_dev)
 	return 0;
 }
 
+static void fstab_ab(struct wcn_device *wcn_dev)
+{
+	if (wcn_dev->fstab == 'a')
+		strcat(firmware_file_path, "_a");
+	else if (wcn_dev->fstab == 'b')
+		strcat(firmware_file_path, "_b");
+}
+
 static int wcn_download_image_new(struct wcn_device *wcn_dev)
 {
-	char *file;
 	int ret = 0;
 
+	memset(firmware_file_path, 0, FIRMWARE_FILEPATHNAME_LENGTH_MAX);
 	/* file_path used in dts */
 	if (wcn_dev->file_path) {
-		file = wcn_dev->file_path;
+		strncpy(firmware_file_path, wcn_dev->file_path,
+			sizeof(firmware_file_path));
+		fstab_ab(wcn_dev);
 		if (wcn_dev_is_gnss(wcn_dev)) {
-			if (s_wcn_device.gnss_type == WCN_GNSS_TYPE_BD)
-				file = wcn_dev->file_path_ext;
-			gnss_file_path_set(file);
+			if (s_wcn_device.gnss_type == WCN_GNSS_TYPE_BD) {
+				strncpy(firmware_file_path,
+					wcn_dev->file_path_ext,
+					sizeof(firmware_file_path));
+				fstab_ab(wcn_dev);
+			}
+			gnss_file_path_set(firmware_file_path);
 		}
-		WCN_INFO("load config file:%s\n", file);
-		ret = wcn_load_firmware_img(wcn_dev, file,
+
+		WCN_INFO("load config file:%s\n", firmware_file_path);
+		ret = wcn_load_firmware_img(wcn_dev, firmware_file_path,
 					    wcn_dev->file_length);
 
 		/* For gnss fix file path isn't fit with actual file type */
 		if (wcn_dev_is_gnss(wcn_dev) && ret == 1) {
 			if (s_wcn_device.gnss_type == WCN_GNSS_TYPE_BD)
-				file = wcn_dev->file_path;
+				strncpy(firmware_file_path, wcn_dev->file_path,
+					sizeof(firmware_file_path));
 			else
-				file = wcn_dev->file_path_ext;
-			gnss_file_path_set(file);
-			WCN_INFO("load config file:%s\n", file);
-			wcn_load_firmware_img(wcn_dev, file,
+				strncpy(firmware_file_path,
+					wcn_dev->file_path_ext,
+					sizeof(firmware_file_path));
+			fstab_ab(wcn_dev);
+			gnss_file_path_set(firmware_file_path);
+			WCN_INFO("load config file:%s\n", firmware_file_path);
+			wcn_load_firmware_img(wcn_dev, firmware_file_path,
 					      wcn_dev->file_length);
 		}
 		return 0;
@@ -459,22 +489,20 @@ static void wcn_marlin_boot_finish(struct wcn_device *wcn_dev)
 static void gnss_clear_boot_flag(void)
 {
 	phys_addr_t phy_addr;
-	u32 magic_value;
+	u32 magic_value = 0;
 
 	phy_addr = wcn_get_gnss_base_addr() + GNSS_TEST_OFFSET;
 	wcn_read_data_from_phy_addr(phy_addr, &magic_value, sizeof(u32));
 	WCN_INFO("magic value is 0x%x\n", magic_value);
 	magic_value = 0;
 	wcn_write_data_to_phy_addr(phy_addr, &magic_value, sizeof(u32));
-
-	WCN_INFO("finish!\n");
 }
 
 /* used for distinguish Pike2 or sharkle */
 static void gnss_read_boot_flag(void)
 {
 	phys_addr_t phy_addr;
-	u32 magic_value;
+	u32 magic_value = 0;
 	u32 wait_count;
 
 	phy_addr = wcn_get_gnss_base_addr() + GNSS_TEST_OFFSET;
@@ -511,10 +539,13 @@ static int wcn_wait_gnss_boot(struct wcn_device *wcn_dev)
 		 wait_count++) {
 		wcn_read_data_from_phy_addr(phy_addr,
 					    &magic_value, sizeof(u32));
-		WCN_INFO("gnss cali: magic_value=0x%x, wait_count=%d\n",
-			 magic_value, wait_count);
-		if (magic_value == GNSS_CALI_DONE_FLAG)
+		WCN_DBG("gnss cali: magic_value=0x%x, wait_count=%d\n",
+			magic_value, wait_count);
+		if (magic_value == GNSS_CALI_DONE_FLAG) {
+			WCN_INFO("gnss cali: magic_value=0x%x, wait_count=%d\n",
+				 magic_value, wait_count);
 			break;
+		}
 		msleep(GNSS_WAIT_CP_INIT_POLL_TIME_MS);
 	}
 
@@ -576,8 +607,8 @@ int wcn_proc_native_start(void *arg)
 	wcn_cpu_bootup(wcn_dev);
 
 	wcn_dev->power_state = WCN_POWER_STATUS_ON;
-	WCN_INFO("device power_state:%d\n",
-		 wcn_dev->power_state);
+	WCN_DBG("device power_state:%d\n",
+		wcn_dev->power_state);
 
 	/* wifi need polling CP ready */
 	if (is_marlin) {
@@ -603,7 +634,7 @@ int wcn_proc_native_stop(void *arg)
 	u32 reg_read;
 	u32 type;
 
-	WCN_INFO("enter\n");
+	WCN_DBG("%s enter\n", __func__);
 
 	if (!wcn_dev)
 		return -EINVAL;
@@ -618,8 +649,8 @@ int wcn_proc_native_stop(void *arg)
 		wcn_regmap_read(wcn_dev->rmap[type],
 				reg_read,
 				&val);
-		WCN_INFO("ctrl_shutdown_reg[%d] = 0x%x, val=0x%x\n",
-			 iloop_index, reg_read, val);
+		WCN_INFO("rmap[%d]:ctrl_shutdown_reg[%d] = 0x%x, val=0x%x\n",
+			 type, iloop_index, reg_read, val);
 
 		wcn_regmap_raw_write_bit(wcn_dev->rmap[type],
 					 wcn_dev->ctrl_shutdown_reg
@@ -685,7 +716,7 @@ static void wcn_clear_ddr_gnss_cali_bit(void)
 	value = GNSS_CALIBRATION_FLAG_CLEAR_VALUE;
 	phy_addr = wcn_dev->base_addr + GNSS_CALIBRATION_FLAG_CLEAR_ADDR;
 	wcn_write_data_to_phy_addr(phy_addr, &value, sizeof(u32));
-	WCN_INFO("clear gnss ddr bit\n");
+	WCN_DBG("clear gnss ddr bit\n");
 }
 
 static void wcn_set_nognss(u32 val)
@@ -698,7 +729,7 @@ static void wcn_set_nognss(u32 val)
 		phy_addr = wcn_dev->base_addr +
 			   (phys_addr_t)&s_wssm_phy_offset_p->include_gnss;
 		wcn_write_data_to_phy_addr(phy_addr, &val, sizeof(u32));
-		WCN_INFO("gnss:%u\n", val);
+		WCN_DBG("gnss:%u\n", val);
 	}
 }
 
@@ -756,6 +787,7 @@ static void wcn_show_dev_status(const char *pre_str)
 
 int start_integrate_wcn_truely(u32 subsys)
 {
+	static u32 first_start;
 	bool is_marlin;
 	struct wcn_device *wcn_dev;
 	u32 subsys_bit = 1 << subsys;
@@ -817,16 +849,25 @@ int start_integrate_wcn_truely(u32 subsys)
 		if (is_marlin) {
 			goto err_boot_marlin;
 		} else if (wcn_dev->boot_cp_status == WCN_BOOT_CP2_ERR_BOOT) {
-			mutex_unlock(&wcn_dev->power_lock);  /* gnss */
+			/* warnning! gnss fake status for poweroff */
+			wcn_dev->wcn_open_status |= subsys_bit;
+			mutex_unlock(&wcn_dev->power_lock);
 			return -1;
 		}
 	}
 	wcn_dev->wcn_open_status |= subsys_bit;
 
 	if (is_marlin) {
-		wcn_set_module_state(true);
 		mdbg_atcmd_clean();
-		wcn_ap_notify_btwf_time();
+		wcn_set_module_state(true);
+		wcn_set_loopcheck_state(true);
+		marlin_bootup_time_update();
+		if (unlikely(!first_start)) {
+			wcn_firmware_init();
+			first_start = 1;
+		} else {
+			schedule_work(&wcn_dev->firmware_init_wq);
+		}
 	}
 	mutex_unlock(&wcn_dev->power_lock);
 
@@ -835,12 +876,11 @@ int start_integrate_wcn_truely(u32 subsys)
 	return 0;
 
 err_boot_marlin:
-	mdbg_assert_interface("MARLIN boot cp timeout");
 	/* warnning! fake status for poweroff in usr mode */
 	wcn_dev->wcn_open_status |= subsys_bit;
 	mutex_unlock(&wcn_dev->power_lock);
 
-	return -1;
+	return -ETIMEDOUT;
 }
 
 int start_integrate_wcn(u32 subsys)
@@ -869,6 +909,7 @@ int start_integrate_wcn(u32 subsys)
 			wcn_clear_ddr_gnss_cali_bit();
 			ret = start_integrate_wcn_truely(WCN_GNSS);
 			if (ret) {
+				stop_integrate_wcn_truely(WCN_GNSS);
 				mutex_unlock(&marlin_lock);
 				return ret;
 			}
@@ -890,6 +931,9 @@ int start_integrate_wcn(u32 subsys)
 			ret = start_integrate_wcn_truely(btwf_subsys);
 			if (ret) {
 				mutex_unlock(&marlin_lock);
+				if (ret == -ETIMEDOUT)
+					mdbg_assert_interface(
+						"MARLIN boot cp timeout\n");
 				return ret;
 			}
 		}
@@ -905,7 +949,8 @@ int start_integrate_wcn(u32 subsys)
 	}
 	ret = start_integrate_wcn_truely(subsys);
 	mutex_unlock(&marlin_lock);
-
+	if (ret == -ETIMEDOUT)
+		mdbg_assert_interface("MARLIN boot cp timeout");
 	return ret;
 }
 
@@ -968,6 +1013,8 @@ int stop_integrate_wcn_truely(u32 subsys)
 	}
 
 	WCN_INFO("%s do stop\n", wcn_dev->name);
+	if (is_marlin)
+		wcn_set_loopcheck_state(false);
 	/* btwf use the send shutdown cp2 cmd way */
 	if (is_marlin && !sprdwcn_bus_get_carddump_status())
 		force_sleep = wcn_send_force_sleep_cmd(wcn_dev);

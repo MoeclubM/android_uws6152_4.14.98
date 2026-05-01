@@ -47,6 +47,7 @@ void edma_print_mbuf_data(int channel, struct mbuf_t *head,
 		WARN_ON(1);
 		return;
 	}
+	print_len = head->len;
 	sprintf(print_str, "WCN PCIE: %s bt:  ", func);
 	print_hex_dump(KERN_INFO, print_str, DUMP_PREFIX_NONE,
 		16, 1, head->buf, (print_len < MAX_PRINT_BYTE_NUM ?
@@ -92,10 +93,12 @@ void *mpool_malloc(int len)
 	static int total_len;
 	struct edma_info *edma = edma_info();
 
+	mutex_lock(&edma->mpool_lock);
 	if (mpool_buffer == NULL) {
 		ret = dmalloc(edma->pcie_info, &mpool_dm, MPOOL_SIZE);
 		if (ret != 0) {
 			WCN_ERR("%s dmalloc fail\n", __func__);
+			mutex_unlock(&edma->mpool_lock);
 			return NULL;
 		}
 		/* reset total length */
@@ -106,19 +109,24 @@ void *mpool_malloc(int len)
 			 mpool_dm.vir + 0x10000,
 			 mpool_dm.phy + 0x10000);
 	}
-	if (len <= 0)
+	if (len <= 0) {
+		mutex_unlock(&edma->mpool_lock);
 		return NULL;
+	}
 	p = mpool_buffer;
 	memset(p, 0x56, len);
 	mpool_buffer += len;
 	total_len += len;
 	if (total_len > MPOOL_SIZE) {
 		WCN_ERR("mpool used done!size=0x%x\n", total_len);
+		mutex_unlock(&edma->mpool_lock);
 		return NULL;
 	}
-	WCN_INFO("%s(0x%x) totle:0x%x= {0x%p, 0x%p}\n",
-		 __func__, len, total_len,
+	WCN_DBG("%s(0x%x) totle:0x%x= {0x%p, 0x%p}\n", __func__, len, total_len,
 		 p, mpool_vir_to_phy((void *)p));
+
+	mutex_unlock(&edma->mpool_lock);
+
 	return p;
 }
 
@@ -169,10 +177,16 @@ static int wait_wcnevent(struct event_t *event, int timeout)
 
 static int set_wcnevent(struct event_t *event)
 {
+	unsigned long flags;
+	struct edma_info *edma = edma_info();
+
+	spin_lock_irqsave(&edma->tasklet_lock, flags);
 	if (event->tasklet != NULL)
 		tasklet_schedule(event->tasklet);
 	else
 		up(&(event->wait_sem));
+	spin_unlock_irqrestore(&edma->tasklet_lock, flags);
+
 	return 0;
 }
 
@@ -408,10 +422,10 @@ static int dscr_zero(struct desc *dscr)
 	dscr->chn_trans_len.reg = 0;
 	dscr->chn_trans_len.bit.rf_chn_tx_intr = 0;
 	dscr->chn_trans_len.bit.rf_chn_rx_intr = 0;
-	dscr->chn_ptr_high.bit.rf_chn_src_data_addr_high = 0xFF;
-	dscr->chn_ptr_high.bit.rf_chn_dst_data_addr_high = 0xFF;
-	dscr->rf_chn_data_src_addr_low = 0xFFFFFFFF;
-	dscr->rf_chn_data_dst_addr_low = 0xFFFFFFFF;
+	dscr->chn_ptr_high.bit.rf_chn_src_data_addr_high = 0x00;
+	dscr->chn_ptr_high.bit.rf_chn_dst_data_addr_high = 0x00;
+	dscr->rf_chn_data_src_addr_low = 0x10b000;
+	dscr->rf_chn_data_dst_addr_low = 0x10b000;
 
 	return 0;
 }
@@ -540,6 +554,7 @@ static int edma_hw_tx_req(int chn)
 	/* 1s timeout */
 	mod_timer(&edma->edma_tx_timer, jiffies +
 		  EDMA_TX_TIMER_INTERVAL_MS * HZ / 1000);
+	wcn_set_tx_complete_status(2);
 	edma->dma_chn_reg[chn].dma_tx_req.reg = 1;
 
 	set_bit(chn, &edma->cur_chn_status);
@@ -566,13 +581,12 @@ int edma_hw_pause(void)
 	union dma_glb_pause_reg tmp;
 	u32 retries;
 
-	tmp.reg = readl_relaxed((void *)(&edma->dma_glb_reg->dma_pause.reg));
+	tmp.reg = readl((void *)(&edma->dma_glb_reg->dma_pause.reg));
 	tmp.bit.rf_dma_pause = 1;
-	writel_relaxed(tmp.reg, (void *)(&edma->dma_glb_reg->dma_pause.reg));
+	writel(tmp.reg, (void *)(&edma->dma_glb_reg->dma_pause.reg));
 
 	for (retries = 0; retries < 5; retries++) {
-		tmp.reg = readl_relaxed((void *)
-					(&edma->dma_glb_reg->dma_pause.reg));
+		tmp.reg = readl((void *)(&edma->dma_glb_reg->dma_pause.reg));
 		if (tmp.bit.rf_dma_pause_status == 1)
 			return 0;
 		WCN_INFO("%s:retries=%d, value=0x%x\n", __func__, retries,
@@ -590,9 +604,9 @@ int edma_hw_restore(void)
 	struct edma_info *edma = edma_info();
 	union dma_glb_pause_reg tmp;
 
-	tmp.reg = readl_relaxed((void *)(&edma->dma_glb_reg->dma_pause.reg));
+	tmp.reg = readl((void *)(&edma->dma_glb_reg->dma_pause.reg));
 	tmp.bit.rf_dma_pause = 0;
-	writel_relaxed(tmp.reg, (void *)(&edma->dma_glb_reg->dma_pause.reg));
+	writel(tmp.reg, (void *)(&edma->dma_glb_reg->dma_pause.reg));
 
 	return 0;
 }
@@ -1198,13 +1212,17 @@ int legacy_irq_handle(int data)
 
 int msi_irq_handle(int irq)
 {
-	int chn = 0;
+	int chn, i = 0;
 	unsigned long irq_flags;
 	union dma_chn_int_reg dma_int;
 	struct isr_msg_queue msg = { 0 };
 	struct edma_info *edma = edma_info();
 
 	WCN_INFO("irq msi handle=%d\n", irq);
+	if (!wcn_get_edma_status()) {
+		WCN_ERR("do not handle this irq, card removed\n");
+		return -1;
+	}
 	local_irq_save(irq_flags);
 	chn = (irq - 0) / 2;
 	dma_int.reg = edma->dma_chn_reg[chn].dma_int.reg;
@@ -1213,6 +1231,7 @@ int msi_irq_handle(int irq)
 	__pm_wakeup_event(&edma->edma_pop_ws, jiffies_to_msecs(HZ / 2));
 
 	if (edma->chn_sw[chn].inout == TX) {
+		wcn_set_tx_complete_status(1);
 		clear_bit(chn, &edma->cur_chn_status);
 		del_timer(&edma->edma_tx_timer);
 		if (irq % 2 == 0) {
@@ -1227,9 +1246,18 @@ int msi_irq_handle(int irq)
 	} else {
 		if (irq % 2 == 0) {
 			do {
+				i++;
 				dma_int.bit.rf_chn_rx_pop_int_clr = 1;
 				edma->dma_chn_reg[chn].dma_int.reg =
 								dma_int.reg;
+				if ((edma->dma_chn_reg[chn].dma_int.reg ==
+				    0xFFFFFFFF) || (i > 3000)) {
+					WCN_ERR("i=%d, dma_int=0x%08x\n", i,
+						edma->dma_chn_reg[chn].dma_int
+						.reg);
+					local_irq_restore(irq_flags);
+					return -1;
+				}
 			} while (edma->dma_chn_reg[chn].dma_int.reg & 0x040400);
 
 			msg.evt = ISR_MSG_RX_POP;
@@ -1314,6 +1342,8 @@ static void dscr_ring_deinit(int chn)
 	dscr_ring->free = dscr_ring->size;
 	dscr_ring->head = dscr_ring->tail = dscr =
 					(struct desc *) dscr_ring->mem;
+	if (!dscr)
+		return;
 	dscr_zero(dscr);
 }
 
@@ -1324,12 +1354,12 @@ static int dscr_ring_init(int chn, struct dscr_ring *dscr_ring,
 	unsigned int tmp;
 	struct desc *dscr;
 
-	WCN_INFO("[+]%s(0x%p, 0x%p)\n", __func__, dscr_ring,
+	WCN_DBG("[+]%s(0x%p, 0x%p)\n", __func__, dscr_ring,
 			 dscr_ring->mem);
 
 	/* mpool not free, so dscr_ring->mem not change and
-	 * don't need re-init.
-	 */
+	   don't need re-init.
+	*/
 	if (dscr_ring->mem == NULL) {
 		dscr_ring->mem =
 		    (unsigned char *)mpool_malloc(sizeof(struct desc) *
@@ -1382,13 +1412,14 @@ static int dscr_ring_init(int chn, struct dscr_ring *dscr_ring,
 		       (unsigned char *)(&tmp), 4);
 		dscr[0].chn_trans_len.bit.rf_chn_pause = 1;
 	}
-	WCN_INFO("dscr(0x%p-->0x%p)\n",
+	WCN_DBG("dscr(0x%p-->0x%p)\n",
 		 mpool_vir_to_phy(&dscr[i]),
 		 mpool_vir_to_phy(&dscr[0]));
 	dscr[i].next.p = &dscr[0];
 	dscr_ring->free = size;
-	WCN_INFO("[-]%s(0x%p, 0x%p, %d, %d)\n", __func__, dscr_ring,
+	WCN_DBG("[-]%s(0x%p, 0x%p, %d, %d)\n", __func__, dscr_ring,
 		 dscr_ring->mem, dscr_ring->size, dscr_ring->free);
+
 	return 0;
 }
 
@@ -1600,6 +1631,7 @@ int edma_dump_glb_reg(void)
 {
 	struct wcn_pcie_info *pdev;
 	u32 value;
+	struct edma_info *edma = edma_info();
 
 	pdev = get_wcn_device_info();
 	if (!pdev) {
@@ -1618,6 +1650,12 @@ int edma_dump_glb_reg(void)
 	value = sprd_pcie_read_reg32(pdev, DMA_DEBUG_STATUS);
 	WCN_INFO("[debug_sts  ] = 0x%08x\n",  value);
 	value = sprd_pcie_read_reg32(pdev, DMA_ARB_SEL_STATUS);
+
+	if ((value > 0) && (value < 31))
+		set_bit((value - 1), &edma->cur_chn_status);
+	else if (value == 0xffffffff)
+		return -1;
+
 	WCN_INFO("[arb_sel_sts] = 0x%08x\n",  value);
 	value = sprd_pcie_read_reg32(pdev, DMA_CHN_ARPROT);
 	WCN_INFO("[arport     ] = 0x%08x\n",  value);
@@ -1645,12 +1683,23 @@ static void edma_tx_timer_expire(unsigned long data)
 	int i;
 
 	WCN_ERR("edma tx send timeout\n");
-	edma_dump_glb_reg();
+	if (!wcn_get_edma_status())
+		return;
+	wcn_set_tx_complete_status(1);
+	if (edma_dump_glb_reg() < 0)
+		return;
 	for (i = 0; i < 16; i++) {
 		if (test_bit(i, &edma->cur_chn_status))
 			edma_dump_chn_reg(i);
 	}
 
+}
+
+void edma_del_tx_timer(void)
+{
+	struct edma_info *edma = edma_info();
+
+	del_timer(&edma->edma_tx_timer);
 }
 
 int edma_init(struct wcn_pcie_info *pcie_info)
@@ -1695,9 +1744,9 @@ int edma_init(struct wcn_pcie_info *pcie_info)
 	reg = (unsigned int *)(pcie_bar_vmem(edma->pcie_info, 0) + 0x130004);
 	*reg = ((*reg) | 1 << 7);
 	edma->dma_glb_reg = (struct edma_glb_reg *)
-			(pcie_bar_vmem(edma->pcie_info, 0) + 0x160000);
+			(pcie_bar_vmem(edma->pcie_info, 0) + EDMA_GLB_REG_BASE);
 	edma->dma_chn_reg = (struct edma_chn_reg *)
-			(pcie_bar_vmem(edma->pcie_info, 0) + 0X161000);
+			(pcie_bar_vmem(edma->pcie_info, 0) + EDMA_CHN_REG_BASE);
 	WCN_INFO("WCN dma_chn_reg size is %ld\n", sizeof(struct edma_chn_reg));
 	for (i = 0; i < 16; i++) {
 		WCN_DBG("edma chn[%d] dma_int:0x%p, event:%p\n", i,
@@ -1709,6 +1758,8 @@ int edma_init(struct wcn_pcie_info *pcie_info)
 
 	wakeup_source_init(&edma->edma_push_ws, "wcn edma txrx push");
 	wakeup_source_init(&edma->edma_pop_ws, "wcn edma txrx callback");
+	mutex_init(&edma->mpool_lock);
+	spin_lock_init(&edma->tasklet_lock);
 
 	/* Init edma tx send timeout timer */
 	init_timer(&edma->edma_tx_timer);
@@ -1716,6 +1767,27 @@ int edma_init(struct wcn_pcie_info *pcie_info)
 	edma->edma_tx_timer.function = edma_tx_timer_expire;
 
 	WCN_INFO("%s done\n", __func__);
+
+	return 0;
+}
+
+int edma_tasklet_deinit(void)
+{
+	unsigned long flags;
+	struct edma_info *edma = edma_info();
+
+	spin_lock_irqsave(&edma->tasklet_lock, flags);
+#if CONFIG_TASKLET_SUPPORT
+	WCN_INFO("tasklet exit start status=0x%lx, count=%d\n",
+		 edma->isr_func.q.event.tasklet->state,
+		 atomic_read(&edma->isr_func.q.event.tasklet->count));
+	tasklet_disable(edma->isr_func.q.event.tasklet);
+	tasklet_kill(edma->isr_func.q.event.tasklet);
+	kfree(edma->isr_func.q.event.tasklet);
+	edma->isr_func.q.event.tasklet = NULL;
+	WCN_INFO("tasklet exit end\n");
+#endif
+	spin_unlock_irqrestore(&edma->tasklet_lock, flags);
 
 	return 0;
 }
@@ -1736,15 +1808,11 @@ int edma_deinit(void)
 		enqueue(&(edma->isr_func.q), (unsigned char *)&msg);
 		set_wcnevent(&(edma->isr_func.q.event));
 	} while (edma->isr_func.state);
-#if CONFIG_TASKLET_SUPPORT
-	WCN_INFO("tasklet exit\n");
-	tasklet_disable(edma->isr_func.q.event.tasklet);
-	tasklet_kill(edma->isr_func.q.event.tasklet);
-	kfree(edma->isr_func.q.event.tasklet);
-#endif
+
 	WCN_INFO("wakeup_source exit\n");
 	wakeup_source_trash(&edma->edma_push_ws);
 	wakeup_source_trash(&edma->edma_pop_ws);
+	mutex_destroy(&edma->mpool_lock);
 	kfree(q->lock.irq_spinlock_p);
 	delete_queue(q);
 	/* TODO: need free mpool */

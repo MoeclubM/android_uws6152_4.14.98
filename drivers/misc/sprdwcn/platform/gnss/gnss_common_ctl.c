@@ -79,7 +79,7 @@ struct completion gnss_dump_complete;
 #endif
 static unsigned int gnssver = 0x22;
 static const struct of_device_id gnss_common_ctl_of_match[] = {
-	{.compatible = "sprd,gnss-common-ctl", .data = (void *)&gnssver},
+	{.compatible = "sprd,gnss_common_ctl", .data = (void *)&gnssver},
 	{},
 };
 
@@ -276,7 +276,7 @@ static int gnss_tsen_enable(int type)
 
 	regmap_read(regmap, (REGS_ANA_APB_BASE + TSEN_CTRL0), &value);
 	GNSSCOMM_ERR("%s, TSEN_CTRL0 value read 0x%x\n", __func__, value);
-	temp = value | BIT_TSEN_ADCLDO_EN;
+	temp = value | BIT_TSEN_CLK_SRC_SEL | BIT_TSEN_ADCLDO_EN;
 	regmap_write(regmap, (REGS_ANA_APB_BASE + TSEN_CTRL0), temp);
 	regmap_read(regmap, (REGS_ANA_APB_BASE + TSEN_CTRL0), &value);
 	GNSSCOMM_ERR("%s, 2nd read 0x%x\n", __func__, value);
@@ -344,7 +344,8 @@ static int gnss_tsen_disable(int type)
 
 	regmap_read(regmap, (REGS_ANA_APB_BASE + TSEN_CTRL0), &value);
 	GNSSCOMM_ERR("%s, TSEN_CTRL0 value read 0x%x\n", __func__, value);
-	temp = value & ~BIT_TSEN_ADCLDO_EN;
+	temp = BIT_TSEN_CLK_SRC_SEL | BIT_TSEN_ADCLDO_EN;
+	temp = value & (~temp);
 	regmap_write(regmap, (REGS_ANA_APB_BASE + TSEN_CTRL0), temp);
 	regmap_read(regmap, (REGS_ANA_APB_BASE + TSEN_CTRL0), &value);
 	GNSSCOMM_ERR("%s, 2nd read 0x%x\n", __func__, value);
@@ -372,8 +373,7 @@ static int gnss_tsen_disable(int type)
 static void gnss_power_on(bool enable)
 {
 	int ret;
-    enable = 0;  //20210804 fanghailin ??¨¨?1?¡À?GNSS1|?¨¹
-	gnss_common_ctl_dev.gnss_status = GNSS_STATUS_POWERON;
+
 	GNSSCOMM_INFO("%s:enable=%d,current gnss_status=%d\n", __func__,
 			enable, gnss_common_ctl_dev.gnss_status);
 	if (enable && gnss_common_ctl_dev.gnss_status == GNSS_STATUS_POWEROFF) {
@@ -418,7 +418,7 @@ static ssize_t gnss_power_enable_store(struct device *dev,
 	}
 	GNSSCOMM_INFO("%s,%lu\n", __func__, set_value);
 	if (set_value == 1)
-		gnss_power_on(0); //20210804 fanghailin modify , old value -> gnss_power_on(1);
+		gnss_power_on(1);
 	else if (set_value == 0)
 		gnss_power_on(0);
 	else {
@@ -483,7 +483,7 @@ static DEVICE_ATTR_RW(gnss_subsys);
 static int gnss_status_get(void)
 {
 	phys_addr_t phy_addr;
-	u32 magic_value;
+	u32 magic_value = 0;
 
 	phy_addr = wcn_get_gnss_base_addr() + GNSS_STATUS_OFFSET;
 	wcn_read_data_from_phy_addr(phy_addr, &magic_value, sizeof(u32));
@@ -536,13 +536,19 @@ static ssize_t gnss_dump_store(struct device *dev,
 {
 	unsigned long set_value;
 	int ret = -1;
-	int temp = 0;
-	set_value = 0;  //20210804 fanghailin modify £¬disable GNSS
-	if (kstrtoul(buf, GNSS_MAX_STRING_LEN, &set_value)) {
-		GNSSCOMM_ERR("%s, store string is too long\n", __func__);
-		return -EINVAL;
-	}
-	GNSSCOMM_INFO("%s,%lu\n", __func__, set_value);
+	int temp = 0, strlen = 0;
+	char triggerStr[64];
+
+	set_value = buf[0] - '0';
+	GNSSCOMM_INFO("%s, set_value: %lu\n", __func__, set_value);
+
+	memset(triggerStr, 0, 64);
+	strlen = ((count - 2) > 63) ? 63 : (count - 2);
+	memcpy(triggerStr, &buf[2], strlen);
+	GNSSCOMM_INFO("%s, triggerStr: %s\n", __func__, triggerStr);
+
+	wcn_assert_interface(WCN_SOURCE_GNSS, triggerStr);
+
 	if (set_value == 1) {
 #ifdef CONFIG_SC2342_INTEG
 		temp = wait_for_completion_timeout(&gnss_dump_complete,
@@ -579,6 +585,23 @@ static ssize_t gnss_status_show(struct device *dev,
 	return i;
 }
 static DEVICE_ATTR_RO(gnss_status);
+
+#ifdef CONFIG_UMW2652
+static ssize_t gnss_clktype_show(struct device *dev,
+				 struct device_attribute *attr, char *buf)
+{
+	int i = 0;
+	enum wcn_clock_type clktype = WCN_CLOCK_TYPE_UNKNOWN;
+
+	clktype = wcn_get_xtal_26m_clk_type();
+	GNSSCOMM_INFO("%s: %d\n", __func__, clktype);
+	i = scnprintf(buf, PAGE_SIZE, "%d\n", clktype);
+
+	return i;
+}
+static DEVICE_ATTR_RO(gnss_clktype);
+#endif
+
 #ifndef CONFIG_SC2342_INTEG
 static uint gnss_op_reg;
 static uint gnss_indirect_reg_offset;
@@ -670,6 +693,9 @@ static struct attribute *gnss_common_ctl_attrs[] = {
 	&dev_attr_gnss_dump.attr,
 	&dev_attr_gnss_status.attr,
 	&dev_attr_gnss_subsys.attr,
+#ifdef CONFIG_UMW2652
+	&dev_attr_gnss_clktype.attr,
+#endif
 #ifndef CONFIG_SC2342_INTEG
 	&dev_attr_gnss_regr.attr,
 	&dev_attr_gnss_regaddr.attr,
@@ -769,7 +795,7 @@ static int gnss_common_ctl_remove(struct platform_device *pdev)
 }
 static struct platform_driver gnss_common_ctl_drv = {
 	.driver = {
-		   .name = "gnss-common-ctl",
+		   .name = "gnss_common_ctl",
 		   .of_match_table = of_match_ptr(gnss_common_ctl_of_match),
 		   },
 	.probe = gnss_common_ctl_probe,
