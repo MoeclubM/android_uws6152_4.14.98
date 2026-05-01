@@ -29,8 +29,8 @@ static int __set_clk_parents(struct device_node *node, bool clk_supplier)
 	for (index = 0; index < num_parents; index++) {
 		pr_err("DEBUG: __set_clk_parents node=%pOF, index=%d\n", node, index);
 
-		rc = of_parse_phandle_with_fixed_args(node, "assigned-clock-parents",
-						     0, index, &clkspec);
+		rc = of_parse_phandle_with_args(node, "assigned-clock-parents",
+					"#clock-cells",	index, &clkspec);
 		if (rc < 0) {
 			pr_err("DEBUG: of_parse_phandle_with_args(parents) failed, rc=%d\n", rc);
 			if (rc == -ENOENT)
@@ -54,10 +54,36 @@ static int __set_clk_parents(struct device_node *node, bool clk_supplier)
 			return PTR_ERR(pclk);
 		}
 
-		rc = of_parse_phandle_with_fixed_args(node, "assigned-clocks",
-						     0, index, &clkspec);
-		if (rc < 0)
-			goto err;
+		/* For assigned-clocks in parent switching, we also need to parse
+		 * the matching assigned-clocks property. Apply the same fallback
+		 * logic as in __set_clk_rates.
+		 */
+		rc = of_parse_phandle_with_args(node, "assigned-clocks",
+					"#clock-cells", index, &clkspec);
+		if (rc == -EINVAL) {
+			/* Fallback: phandle only? Assume missing arg is 0 */
+			struct device_node *np;
+			np = of_parse_phandle(node, "assigned-clocks", index);
+			if (!np)
+				goto err;
+			u32 cells;
+			if (of_property_read_u32(np, "#clock-cells", &cells))
+				cells = 0;
+			clkspec.np = np;
+			clkspec.args_count = cells;
+			memset(clkspec.args, 0, sizeof(clkspec.args));
+			rc = 0;
+			pr_err("DEBUG: fallback: set assigned-clocks phandle %u, cells=%u\n",
+			       np->phandle, cells);
+		}
+		if (rc < 0) {
+			pr_err("DEBUG: failed to parse assigned-clocks, rc=%d\n", rc);
+			if (rc == -ENOENT)
+				continue;
+			else
+				goto err;
+		}
+
 		if (clkspec.np == node && !clk_supplier) {
 			rc = 0;
 			goto err;
@@ -115,11 +141,32 @@ static int __set_clk_rates(struct device_node *node, bool clk_supplier)
 			} else {
 				pr_err("DEBUG: no assigned-clocks property\n");
 			}
-
-			rc = of_parse_phandle_with_fixed_args(node, "assigned-clocks",
-							     0, index, &clkspec);
+                
+			/* First try normal parsing, which checks #clock-cells */
+			rc = of_parse_phandle_with_args(node, "assigned-clocks",
+					"#clock-cells", index, &clkspec);
+			if (rc == -EINVAL) {
+				/*
+				 * Fallback: the property likely contains only a phandle,
+				 * but the target node requires more arguments (e.g. #clock-cells=1).
+				 * We manually add default arguments (all zeros).
+				 */
+				struct device_node *np;
+				np = of_parse_phandle(node, "assigned-clocks", index);
+				if (np) {
+					u32 cells;
+					if (of_property_read_u32(np, "#clock-cells", &cells))
+						cells = 0;
+					clkspec.np = np;
+					clkspec.args_count = cells;
+					memset(clkspec.args, 0, sizeof(clkspec.args));
+					rc = 0;
+					pr_err("DEBUG: fallback: set assigned-clocks phandle %u, cells=%u\n",
+					       np->phandle, cells);
+				}
+			}
 			if (rc < 0) {
-				pr_err("DEBUG: of_parse_phandle_with_fixed_args failed, rc=%d\n", rc);
+				pr_err("DEBUG: of_parse_phandle_with_args/fixed_args failed, rc=%d\n", rc);
 				if (rc == -ENOENT)
 					continue;
 				else
