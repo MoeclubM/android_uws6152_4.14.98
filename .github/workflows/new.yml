@@ -6,7 +6,7 @@ on:
       target_repo_name:
         description: '新私有仓库的名字'
         required: true
-        default: 'my-cleaned-kernel'
+        default: 'android_uws6152_4.14.98'
 
 jobs:
   push-clean:
@@ -17,18 +17,14 @@ jobs:
           git clone --branch test --single-branch --recurse-submodules \
             https://github.com/${{ github.repository }}.git source
           cd source
-          git submodule update --init --recursive  # 确保子模块内容拉取完整
+          git submodule update --init --recursive
 
       - name: Create orphan branch to wipe history but keep everything
         run: |
           cd source
-          # 创建一个没有任何历史的孤立分支
           git checkout --orphan new_main
-          # 清空暂存区（但工作树文件还在）
           git rm -rf --cached .
-          # 重新添加所有文件，包括 .github、子模块的 .gitmodules 和 gitlink
           git add -A
-          # 使用你配置的账号信息进行提交
           git config user.name "${{ secrets.MY_NAME }}"
           git config user.email "${{ secrets.MY_EMAIL }}"
           git commit -m "Initial commit (history cleared from test branch)"
@@ -39,7 +35,6 @@ jobs:
           REPO_NAME: ${{ github.event.inputs.target_repo_name }}
         run: |
           cd source
-          # 把当前分支重命名成 main（或保持 new_main，看习惯）
+          git remote remove origin
           git branch -M main
-          # 用 gh 创建私有仓库并推送（--source=. 会使用当前目录的 main 分支）
           gh repo create $REPO_NAME --private --source=. --remote=origin --push
