@@ -4,9 +4,9 @@ on:
   workflow_dispatch:          # 手动触发
     inputs:
       target_repo_name:
-        description: '新私有仓库的名字'
+        description: 'android_ums6152_4.14.98'
         required: true
-        default: 'my-cleaned-kernel'
+        default: 'a kernel of s100'
 
 jobs:
   push-clean:
