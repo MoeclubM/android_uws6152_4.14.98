@@ -454,9 +454,11 @@ static int asoc_sprd_card_dummy_codec_sel(struct device_node *np,
 		return ret;
 	}
 
-	/* 统一使用标准 snd-soc-dummy，不再依赖 sprd-dummy-playback */
+	/* 使用标准 snd-soc-dummy，同时清除可能残留的 of_node 以避免冲突 */
 	dai_link->codec_dai_name = "snd-soc-dummy-dai";
 	dai_link->codec_name = "snd-soc-dummy";
+	dai_link->codec_of_node = NULL;  // <--- 这里加上清空操作
+
 	return 0;
 }
 
