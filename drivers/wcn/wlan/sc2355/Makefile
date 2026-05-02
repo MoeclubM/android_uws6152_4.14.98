@@ -13,6 +13,7 @@ ccflags-y += -DATCMD_ASSERT
 ccflags-y += -DTCPACK_DELAY_SUPPORT
 ccflags-$(CONFIG_SPRD_WCN_DEBUG) += -DCONFIG_SPRD_WCN_DEBUG
 ccflags-y += -DSPLIT_STACK
+ccflags-y += -Wno-packed-bitfield-compat
 
 obj-m := sprdwl_ng.o
 sprdwl_ng-y := $(patsubst $(src)/%.c,%.o,$(shell find $(src) -name "*.c"))
