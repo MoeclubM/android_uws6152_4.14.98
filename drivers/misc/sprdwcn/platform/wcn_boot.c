@@ -2210,7 +2210,7 @@ static int marlin_set_power(enum wcn_sub_sys subsys, int val)
 			schedule_work(&marlin_dev->gnss_dl_wq);
 			timeleft
 				= wait_for_completion_timeout(
-				&marlin_dev->gnss_download_done, 10 * HZ);
+				&marlin_dev->gnss_download_done, 40 * HZ);
 			if (!timeleft) {
 				pr_err("GNSS download timeout\n");
 				goto out;
