@@ -31,7 +31,6 @@
 
 #include "sprd_iommu_sysfs.h"
 #include "drv/com/sprd_com.h"
-#include "ion.h"     /* needed for struct ion_buffer */
 
 /* -----------------------------------------------------------------------
  * Forward declarations
