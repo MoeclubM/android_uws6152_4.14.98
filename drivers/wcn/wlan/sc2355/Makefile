@@ -15,4 +15,4 @@ ccflags-$(CONFIG_SPRD_WCN_DEBUG) += -DCONFIG_SPRD_WCN_DEBUG
 ccflags-y += -DSPLIT_STACK
 
 obj-m := sprdwl_ng.o
-sprdwl_ng-y := $(shell find $(src) -name "*.c" | sed 's|$(src)/||' | sed 's/\.c/\.o/')
+sprdwl_ng-y := $(patsubst $(src)/%.c,%.o,$(shell find $(src) -name "*.c"))
