@@ -9,6 +9,8 @@ source "drivers/bus/Kconfig"
 
 source "drivers/connector/Kconfig"
 
+source "drivers/wcn/Kconfig"
+
 source "drivers/mtd/Kconfig"
 
 source "drivers/of/Kconfig"
