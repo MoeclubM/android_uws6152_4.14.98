@@ -853,9 +853,11 @@ int sprdwl_get_fw_info(struct sprdwl_priv *priv)
 		priv->chip_ver = p->chip_version;
 		priv->fw_ver = p->fw_version;
 		priv->fw_capa = p->fw_capa;
-		priv->fw_capa &= ~(1<<0);
+		priv->fw_capa |= SPRDWL_CAPA_5G; 
 		priv->fw_std = p->fw_std;
 		priv->extend_feature = p->extend_feature;
+		priv->extend_feature |= SPRDWL_EXTEND_FEATURE_SAE;
+        priv->extend_feature |= SPRDWL_EXTEND_FEATURE_OWE;
 		priv->max_ap_assoc_sta = p->max_ap_assoc_sta;
 		priv->max_acl_mac_addrs = p->max_acl_mac_addrs;
 		priv->max_mc_mac_addrs = p->max_mc_mac_addrs;

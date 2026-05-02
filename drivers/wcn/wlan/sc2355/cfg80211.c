@@ -3780,8 +3780,7 @@ void sprdwl_setup_wiphy(struct wiphy *wiphy, struct sprdwl_priv *priv)
 	wiphy_ext_feature_set(wiphy,
 		NL80211_EXT_FEATURE_SCHED_SCAN_RELATIVE_RSSI);
 #endif
-	if (priv->hw_type != SPRDWL_HW_SC2355_PCIE)
-		wiphy->features |= NL80211_FEATURE_SAE;
+	wiphy->features |= NL80211_FEATURE_SAE;
 }
 
 static void sprdwl_check_intf_ops(struct sprdwl_if_ops *ops)
