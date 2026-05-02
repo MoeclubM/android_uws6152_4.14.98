@@ -3,6 +3,7 @@
 
 #include <linux/scatterlist.h>
 #include <asm/cacheflush.h>
+#include <linux/notifier.h>
 
 #define GSP_VSP_IOMMU_SIZE		(2 * 256 * 1024)
 #define DCAM_ISP_IOMMU_SIZE	(26 * 100 * 1024)
@@ -303,5 +304,15 @@ extern struct sprd_iommu_ops sprd_iommuvau_hw_ops;
 #define IOMMU_WARN(fmt, ...) \
 	pr_warn(IOMMU_TAG  "%s()-" pr_fmt(fmt), __func__, ##__VA_ARGS__)
 
+/* compat APIs */
+int sprd_iommu_map_single_page(struct device *dev, struct sprd_iommu_map_data *data);
+int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data, int idx);
+int sprd_iommu_unmap_with_idx(struct device *dev, struct sprd_iommu_unmap_data *data, int idx);
+void sprd_iommu_pool_show(struct device *dev);
+void sprd_iommu_reg_show(struct device *dev);
+
+/* global notifier chain */
+extern struct blocking_notifier_head sprd_iommu_notif_chain;
+int sprd_iommu_notifier_call_chain(void *data);
 
 #endif
