@@ -31,6 +31,13 @@
 
 #include "sprd_iommu_sysfs.h"
 #include "drv/com/sprd_com.h"
+#include "ion.h"     /* needed for struct ion_buffer */
+
+/* -----------------------------------------------------------------------
+ * Forward declarations
+ * ----------------------------------------------------------------------- */
+static int sprd_iommu_probe(struct platform_device *pdev);
+static int sprd_iommu_remove(struct platform_device *pdev);
 
 /* ============================================================================
  * Global notifier chain for orphan buffer cleanup
@@ -804,7 +811,7 @@ int sprd_iommu_map_single_page(struct device *dev, struct sprd_iommu_map_data *d
 		goto out1;
 	}
 
-	/* ★ 单页映射传入 NULL sg_table */
+	/* single page: pass NULL sg_table */
 	ret = iommu_dev->ops->iova_map(iommu_dev, iova, data->iova_size, NULL, data);
 	if (ret) {
 		IOMMU_ERR("%s error, iova 0x%lx size 0x%zx ret %d buf %p\n",
@@ -1037,7 +1044,7 @@ void sprd_iommu_pool_show(struct device *dev)
 			if (rec->status == SG_SLOT_USED) {
 				IOMMU_ERR("Warning! buffer iova 0x%lx size 0x%lx sg 0x%lx buf %p map_usrs %d\n",
 				       rec->iova_addr, rec->iova_size,
-				       rec->sg_table_addr, rec->buf, rec->map_usrs);
+				       rec->sg_table_addr, rec->buf_addr, rec->map_usrs);
 			}
 		}
 	}
@@ -1054,6 +1061,7 @@ EXPORT_SYMBOL_GPL(sprd_iommu_reg_show);
  * Probe / Remove / Module Init
  * ============================================================================
  */
+
 static int sprd_iommu_get_resource(struct device_node *np,
 				   struct sprd_iommu_init_data *pdata)
 {
@@ -1296,6 +1304,5 @@ static void __exit sprd_iommu_exit(void)
 module_init(sprd_iommu_init);
 module_exit(sprd_iommu_exit);
 
-MODULE_AUTHOR("ZeroDreamCat <neko@0w0.cafe>");
-MODULE_DESCRIPTION("SPRD IOMMU Driver Compatible");
+MODULE_DESCRIPTION("SPRD IOMMU Driver (compat)");
 MODULE_LICENSE("GPL v2");
