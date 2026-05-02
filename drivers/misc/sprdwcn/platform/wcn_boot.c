@@ -1056,27 +1056,38 @@ static int marlin_parse_dt(struct platform_device *pdev)
 		marlin_dev->bound_avdd12 = false;
 	}
 
-	marlin_dev->avdd12 = devm_regulator_get(&pdev->dev, "avdd12");
-	if (IS_ERR(marlin_dev->avdd12)) {
-		pr_err("avdd12 err =%ld\n", PTR_ERR(marlin_dev->avdd12));
-		if (PTR_ERR(marlin_dev->avdd12) == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
-		pr_err("Get regulator of avdd12 error!\n");
-	}
+    marlin_dev->avdd12 = devm_regulator_get(&pdev->dev, "avdd12");
+    if (IS_ERR(marlin_dev->avdd12)) {
+        long err = PTR_ERR(marlin_dev->avdd12);
+        dev_err(&pdev->dev, "avdd12 regulator get failed, err = %ld\n", err);
+        if (err == -EPROBE_DEFER) {
+            dev_err(&pdev->dev, "avdd12 defer probe\n");
+            return -EPROBE_DEFER;
+        }
+        pr_err("Get regulator of avdd12 error!\n");
+    }
 
-	marlin_dev->avdd33 = devm_regulator_get(&pdev->dev, "avdd33");
-	if (IS_ERR(marlin_dev->avdd33)) {
-		if (PTR_ERR(marlin_dev->avdd33) == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
-		pr_err("Get regulator of avdd33 error!\n");
-	}
+    marlin_dev->avdd33 = devm_regulator_get(&pdev->dev, "avdd33");
+    if (IS_ERR(marlin_dev->avdd33)) {
+        long err = PTR_ERR(marlin_dev->avdd33);
+        dev_err(&pdev->dev, "avdd33 regulator get failed, err = %ld\n", err);
+        if (err == -EPROBE_DEFER) {
+            dev_err(&pdev->dev, "avdd33 defer probe\n");
+            return -EPROBE_DEFER;
+        }
+        pr_err("Get regulator of avdd33 error!\n");
+    }
 
-	marlin_dev->dcxo18 = devm_regulator_get(&pdev->dev, "dcxo18");
-	if (IS_ERR(marlin_dev->dcxo18)) {
-		if (PTR_ERR(marlin_dev->dcxo18) == -EPROBE_DEFER)
-			return -EPROBE_DEFER;
-		pr_err("Get regulator of dcxo18 error!\n");
-	}
+    marlin_dev->dcxo18 = devm_regulator_get(&pdev->dev, "dcxo18");
+    if (IS_ERR(marlin_dev->dcxo18)) {
+        long err = PTR_ERR(marlin_dev->dcxo18);
+        dev_err(&pdev->dev, "dcxo18 regulator get failed, err = %ld\n", err);
+        if (err == -EPROBE_DEFER) {
+            dev_err(&pdev->dev, "dcxo18 defer probe\n");
+            return -EPROBE_DEFER;
+        }
+        pr_err("Get regulator of dcxo18 error!\n");
+    }
 
 	if (of_property_read_bool(np, "bound-dcxo18")) {
 		pr_info("forbid dcxo18 power ctrl\n");
