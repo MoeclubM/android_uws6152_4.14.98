@@ -2,4 +2,4 @@
 ccflags-y += -DDEBUG
 
 obj-m := sprd_fm.o
-sprd_fm-y := $(wildcard $(src)/*.c)
+sprd_fm-y := $(patsubst $(src)/%.c,%.o,$(wildcard $(src)/*.c))
