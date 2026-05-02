@@ -2409,22 +2409,20 @@ void sprdwl_report_connection(struct sprdwl_vif *vif,
 						 u.probe_resp.variable);
 
 		ssid_ie = cfg80211_find_ie(WLAN_EID_SSID, ie, ielen);
-		if (ssid_ie) {
-			/* for hidden ssid,please ref bug 1370976,
-			    cp should report prob resp, but sometimes cp
-			    report beacon with ssid value :0x00, need driver cover*/
-			int index = 0;
-			int hidden_ssid = 0;
-			for (; index < ssid_ie[1]; index++) {
-			    hidden_ssid |=  ssid_ie[2 + index];
-			}
-
-				if (!hidden_ssid) {
-					wl_err("no need update bss for hidden ssid\n");
-					goto REPORT_CONNCT_RESULT;
-				}
-			}
-		}
+        if (ssid_ie) {
+        	/* for hidden ssid,please ref bug 1370976,
+        	    cp should report prob resp, but sometimes cp
+        	    report beacon with ssid value :0x00, need driver cover*/
+        	int index;
+        	int hidden_ssid = 0;
+        	for (index = 0; index < ssid_ie[1]; index++)
+        		hidden_ssid |= ssid_ie[2 + index];
+        
+        	if (!hidden_ssid) {
+        		wl_err("no need update bss for hidden ssid\n");
+        		goto REPORT_CONNCT_RESULT;
+        	}
+        }
 		/* framework use system bootup time */
 		get_monotonic_boottime(&ts);
 		tsf = (u64)ts.tv_sec * 1000000 + div_u64(ts.tv_nsec, 1000);
