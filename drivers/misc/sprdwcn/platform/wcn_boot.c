@@ -360,7 +360,7 @@ static struct imageinfo *marlin_judge_images(char *buffer)
 
 static char *btwf_load_firmware_data(loff_t off, unsigned long int imag_size)
 {
-	int read_len, size, i, opn_num_max = 15;
+	int read_len, size, i, opn_num_max = 30;
 	char *buffer = NULL;
 	char *data = NULL;
 	struct file *file;
@@ -666,7 +666,7 @@ void wcn_gnss_ops_unregister(void)
 
 static char *gnss_load_firmware_data(unsigned long int imag_size)
 {
-	int read_len, size, i, opn_num_max = 15;
+	int read_len, size, i, opn_num_max = 30;
 	char *buffer = NULL;
 	char *data = NULL;
 	struct file *file;
@@ -2646,6 +2646,10 @@ static int marlin_probe(struct platform_device *pdev)
 				  GFP_KERNEL);
 	if (!marlin_dev)
 		return -ENOMEM;
+	
+	// Load firmware from shabi dev
+    marlin_dev->is_gnss_in_sysfs = true;
+    marlin_dev->is_btwf_in_sysfs = true;
 
 	marlin_dev->write_buffer = devm_kzalloc(&pdev->dev,
 						PACKET_SIZE, GFP_KERNEL);
