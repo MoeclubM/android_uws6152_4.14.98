@@ -3265,9 +3265,9 @@ void sprdwl_wfd_mib_cnt(struct sprdwl_vif *vif, u8 *data, u16 len)
 		(struct event_wfd_mib_cnt *)data;
 	u32 tx_cnt, busy_cnt, wfd_rate;
 
-	wl_info("%s, %d, drop=%d,%d,%d,%d, frame=%d, clear=%d, mib=%d\n",
-		__func__, __LINE__,
-		wfd->tx_frame_cnt, wfd->rx_clear_cnt, wfd->mib_cycle_cnt);
+	wl_info("%s, %d, tx_frame=%d, rx_clear=%d, mib_cycle=%d\n",
+    	__func__, __LINE__,
+    	wfd->tx_frame_cnt, wfd->rx_clear_cnt, wfd->mib_cycle_cnt);
 	if(!wfd->mib_cycle_cnt)	{
 		return;
 	} else {
@@ -3750,7 +3750,7 @@ int sprdwl_softap_set_sae_para(struct sprdwl_priv *priv, u8 ctx_id, char *data,
 	int len;
 
 	len = sizeof(*param) + data_len;
-	wl_info("total len is : %d, data len\n", len, data_len);
+	wl_info("total len is : %d, data len : %d\n", len, data_len);
 
 	msg = sprdwl_cmd_getbuf(priv, len, ctx_id,
 				SPRDWL_HEAD_RSP, WIFI_CMD_SET_SAE_PARAM);
