@@ -1,0 +1,34 @@
+# drivers/wcn/Kconfig
+menu "Unisoc WCN Connectivity (SDIO)"
+
+config WCN_FM
+    tristate "Unisoc FM Radio (MARLIN3)"
+    depends on MMC
+    help
+      FM driver for Spreadtrum SC2331/MARLIN3 via SDIO.
+
+config WCN_WLAN
+    tristate "Unisoc WLAN (sprdwl_ng)"
+    depends on MMC
+    help
+      WLAN driver for Unisoc platforms via SDIO.
+      Choose the chip variant below.
+
+choice
+    prompt "WLAN Chip Variant"
+    depends on WCN_WLAN
+    default WCN_WLAN_SC2355
+
+config WCN_WLAN_SC2332
+    bool "SC2332"
+config WCN_WLAN_SC2355
+    bool "SC2355"
+endchoice
+
+config WCN_BT
+    tristate "Unisoc Bluetooth TTY (sprdbt_tty)"
+    depends on MMC
+    help
+      Bluetooth TTY driver for Unisoc platforms via SDIO.
+
+endmenu
