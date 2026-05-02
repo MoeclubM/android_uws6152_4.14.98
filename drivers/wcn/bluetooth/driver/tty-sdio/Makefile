@@ -2,5 +2,4 @@
 ccflags-y += -DDEBUG
 
 obj-m := sprdbt_tty.o
-sprdbt_tty-y := $(wildcard $(src)/*.c)
-sprdbt_tty-y += $(wildcard $(src)/alignment/*.c)
+sprdbt_tty-y := $(patsubst $(src)/%.c,%.o,$(wildcard $(src)/*.c $(src)/alignment/*.c))
