@@ -1131,7 +1131,7 @@ static int marlin_parse_dt(struct platform_device *pdev)
 		marlin_dev->base_addr_btwf = res.start;
 		marlin_dev->maxsz_btwf = resource_size(&res);
 		pr_info("cp base = %pa, size = %pa\n",
-			 &marlin_dev->base_addr_btwf, marlin_dev->maxsz_btwf);
+			 &marlin_dev->base_addr_btwf, &marlin_dev->maxsz_btwf);
 	}
 
 	ret = of_address_to_resource(np, 1, &res);
@@ -1141,7 +1141,7 @@ static int marlin_parse_dt(struct platform_device *pdev)
 		marlin_dev->base_addr_gnss = res.start;
 		marlin_dev->maxsz_gnss = resource_size(&res);
 		pr_info("cp base = %pa, size = %pa\n",
-			 &marlin_dev->base_addr_gnss, marlin_dev->maxsz_gnss);
+			 &marlin_dev->base_addr_gnss, &marlin_dev->maxsz_gnss);
 	}
 
 	pr_info("BTWF_FIRMWARE_PATH len=%ld\n",
