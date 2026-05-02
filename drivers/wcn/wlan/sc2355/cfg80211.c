@@ -38,6 +38,10 @@
 #endif
 #include "rx_msg_sc2355.h"
 
+#ifndef NL80211_WPA_VERSION_3
+#define NL80211_WPA_VERSION_3 3
+#endif
+
 #ifdef DFS_MASTER
 #include "11h.h"
 #endif
@@ -2409,12 +2413,11 @@ void sprdwl_report_connection(struct sprdwl_vif *vif,
 			/* for hidden ssid,please ref bug 1370976,
 			    cp should report prob resp, but sometimes cp
 			    report beacon with ssid value :0x00, need driver cover*/
-			if (ssid_ie[1] != 0) {
-				int index = 0;
-				int hidden_ssid = 0;
-				for (index; index < ssid_ie[1]; index++) {
-					hidden_ssid |=  ssid_ie[2 + index];
-				}
+			int index = 0;
+			int hidden_ssid = 0;
+			for (; index < ssid_ie[1]; index++) {
+			    hidden_ssid |=  ssid_ie[2 + index];
+			}
 
 				if (!hidden_ssid) {
 					wl_err("no need update bss for hidden ssid\n");
