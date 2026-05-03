@@ -533,23 +533,33 @@ int sprd_iommu_unmap(struct device *dev, struct sprd_iommu_unmap_data *data)
 	spin_lock_irqsave(&iommu_dev->pgt_lock, flag);
 
 	valid_iova = sprd_iommu_target_iova_find_buf(iommu_dev, data->iova_addr,
-						     data->iova_size, &buf);
-	if (valid_iova) {
-		iova = data->iova_addr;
-	} else {
-		valid_buf = sprd_iommu_target_buf_find_iova(iommu_dev, data->buf,
-							    data->iova_size, &iova);
-		if (valid_buf) {
-			buf = data->buf;
-			data->iova_addr = iova;
-		} else {
-			IOMMU_ERR("%s illegal error iova 0x%lx buf %p size 0x%zx\n",
-			       iommu_dev->init_data->name, data->iova_addr,
-			       data->buf, data->iova_size);
-			ret = -EINVAL;
-			goto out;
-		}
-	}
+                                                 data->iova_size, &buf);
+    if (valid_iova) {
+        iova = data->iova_addr;
+    } else {
+        valid_buf = sprd_iommu_target_buf_find_iova(iommu_dev, data->buf,
+                                                    data->iova_size, &iova);
+        if (valid_buf) {
+            buf = data->buf;
+            data->iova_addr = iova;
+        } else {
+            /* 新增：如果 buf 为 NULL 且记录不存在，直接执行硬件 unmap/free */
+            if (!data->buf) {
+                IOMMU_ERR("%s force unmap for NULL buf iova 0x%lx size 0x%zx\n",
+                          iommu_dev->init_data->name, data->iova_addr, data->iova_size);
+                spin_unlock_irqrestore(&iommu_dev->pgt_lock, flag);
+                iommu_dev->ops->iova_unmap(iommu_dev, data->iova_addr, data->iova_size);
+                iommu_dev->ops->iova_free(iommu_dev, data->iova_addr, data->iova_size);
+                return 0;
+            }
+            /* 原有错误输出 */
+            IOMMU_ERR("%s illegal error iova 0x%lx buf %p size 0x%zx\n",
+                       iommu_dev->init_data->name, data->iova_addr,
+                       data->buf, data->iova_size);
+            ret = -EINVAL;
+            goto out;
+        }
+    }
 
 	sprd_iommu_remove_sg_iova(iommu_dev, iova, &be_free);
 	if (be_free) {
@@ -937,29 +947,6 @@ void sprd_iommu_pool_show(struct device *dev)
                 IOMMU_ERR("Warning! buffer iova 0x%lx size 0x%lx sg 0x%lx buf %p map_usrs %d\n",
                           rec->iova_addr, rec->iova_size,
                           rec->sg_table_addr, rec->buf_addr, rec->map_usrs);
-            }
-        }
-
-        /* 强制清理所有残留映射，补偿相机模块的 unmap 遗漏 */
-        for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
-            rec = &iommu_dev->sg_pool.slot[i];
-            if (rec->status == SG_SLOT_USED) {
-                unsigned long iova = rec->iova_addr;
-                size_t size = rec->iova_size;
-
-                rec->map_usrs = 0;
-                rec->status = SG_SLOT_FREE;
-                iommu_dev->sg_pool.pool_cnt--;
-
-                /* 临时解锁，调用硬件操作 */
-                spin_unlock_irqrestore(&iommu_dev->pgt_lock, flags);
-                iommu_dev->ops->iova_unmap(iommu_dev, iova, size);
-                iommu_dev->ops->iova_free(iommu_dev, iova, size);
-                iommu_dev->map_count--;
-                spin_lock_irqsave(&iommu_dev->pgt_lock, flags);
-
-                IOMMU_ERR("%s: forcibly cleaned leaked mapping iova 0x%lx size 0x%zx buf %p\n",
-                          iommu_dev->init_data->name, iova, size, rec->buf_addr);
             }
         }
     }
