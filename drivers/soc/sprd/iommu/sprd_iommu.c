@@ -339,6 +339,28 @@ static bool sprd_iommu_remove_sg_iova(struct sprd_iommu_dev *iommu_dev,
 	return false;
 }
 
+static bool sprd_iommu_clear_sg_iova(struct sprd_iommu_dev *iommu_dev,
+				     void *buf_addr, unsigned long sg_addr,
+				     unsigned long size, unsigned long *iova)
+{
+	int i;
+	struct sprd_iommu_sg_rec *rec;
+	for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
+		rec = &iommu_dev->sg_pool.slot[i];
+		if (rec->status == SG_SLOT_USED &&
+		    rec->buf_addr == buf_addr &&
+		    rec->sg_table_addr == sg_addr &&
+		    rec->iova_size == size) {
+			rec->map_usrs = 0;
+			rec->status = SG_SLOT_FREE;
+			iommu_dev->sg_pool.pool_cnt--;
+			*iova = rec->iova_addr;
+			return true;
+		}
+	}
+	return false;
+}
+
 /* ============================================================================
  * Notifier callback for orphan buffer cleanup (global, traverses all devices)
  * ============================================================================
@@ -346,16 +368,15 @@ static bool sprd_iommu_remove_sg_iova(struct sprd_iommu_dev *iommu_dev,
 static int sprd_iommu_notify_callback(struct notifier_block *nb,
                                       unsigned long action, void *data)
 {
-    void *buf = data;  /* data is ion_buffer pointer */
+    void *buf = data;
     int i;
 
     if (!buf)
         return NOTIFY_OK;
 
-    /* For each enabled IOMMU device, force unmapping of this buffer */
+    /* 强制清理会导致相机模块 use-after-free，这里仅打印日志 */
     for (i = 0; i < SPRD_IOMMU_MAX; i++) {
         struct sprd_iommu_dev *dev = sprd_iommu_list[i].iommu_dev;
-        struct sprd_iommu_sg_rec *rec;
         int j;
         unsigned long flags;
 
@@ -364,31 +385,14 @@ static int sprd_iommu_notify_callback(struct notifier_block *nb,
 
         spin_lock_irqsave(&dev->pgt_lock, flags);
         for (j = 0; j < SPRD_MAX_SG_CACHED_CNT; j++) {
-            rec = &dev->sg_pool.slot[j];
+            struct sprd_iommu_sg_rec *rec = &dev->sg_pool.slot[j];
             if (rec->status == SG_SLOT_USED && rec->buf_addr == buf) {
-                unsigned long iova = rec->iova_addr;
-                size_t size = rec->iova_size;
-
-                /* Clear the cache slot */
-                rec->map_usrs = 0;
-                rec->status = SG_SLOT_FREE;
-                dev->sg_pool.pool_cnt--;
-
-                spin_unlock_irqrestore(&dev->pgt_lock, flags);
-                /* Unmap from hardware */
-                dev->ops->iova_unmap(dev, iova, size);
-                dev->map_count--;
-                dev->ops->iova_free(dev, iova, size);
-                IOMMU_ERR("%s: force orphan unmap buf %p iova 0x%lx size 0x%zx\n",
-                          dev->init_data->name, buf, iova, size);
-                spin_lock_irqsave(&dev->pgt_lock, flags);
-                /* Restart scanning, as the pool may have changed */
-                j = -1;
+                IOMMU_ERR("%s: orphan mapping FOUND buf %p iova 0x%lx size 0x%lx (not cleaning to avoid crash)\n",
+                          dev->init_data->name, buf, rec->iova_addr, rec->iova_size);
             }
         }
         spin_unlock_irqrestore(&dev->pgt_lock, flags);
     }
-
     return NOTIFY_OK;
 }
 
