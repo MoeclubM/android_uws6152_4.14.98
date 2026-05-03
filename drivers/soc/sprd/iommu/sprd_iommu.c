@@ -907,36 +907,64 @@ EXPORT_SYMBOL_GPL(sprd_iommu_unmap_with_idx);
 
 void sprd_iommu_pool_show(struct device *dev)
 {
-	struct sprd_iommu_dev *iommu_dev;
-	int i;
-	struct sprd_iommu_sg_rec *rec;
+    struct sprd_iommu_dev *iommu_dev;
+    int i;
+    struct sprd_iommu_sg_rec *rec;
+    unsigned long flags;
 
-	if (!dev) {
-		IOMMU_ERR("null parameter err!\n");
-		return;
-	}
-	iommu_dev = sprd_iommu_get_subnode(dev);
-	if (!iommu_dev) {
-		IOMMU_ERR("get null iommu dev\n");
-		return;
-	}
+    if (!dev) {
+        IOMMU_ERR("null parameter err!\n");
+        return;
+    }
+    iommu_dev = sprd_iommu_get_subnode(dev);
+    if (!iommu_dev) {
+        IOMMU_ERR("get null iommu dev\n");
+        return;
+    }
 
-	if (iommu_dev->id == SPRD_IOMMU_VSP || iommu_dev->id == SPRD_IOMMU_DISP)
-		return;
+    if (iommu_dev->id == SPRD_IOMMU_VSP || iommu_dev->id == SPRD_IOMMU_DISP)
+        return;
 
-	IOMMU_ERR("%s restore, map_count %u\n",
-	       iommu_dev->init_data->name, iommu_dev->map_count);
+    spin_lock_irqsave(&iommu_dev->pgt_lock, flags);
 
-	if (iommu_dev->map_count > 0) {
-		for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
-			rec = &iommu_dev->sg_pool.slot[i];
-			if (rec->status == SG_SLOT_USED) {
-				IOMMU_ERR("Warning! buffer iova 0x%lx size 0x%lx sg 0x%lx buf %p map_usrs %d\n",
-				       rec->iova_addr, rec->iova_size,
-				       rec->sg_table_addr, rec->buf_addr, rec->map_usrs);
-			}
-		}
-	}
+    IOMMU_ERR("%s restore, map_count %u\n",
+              iommu_dev->init_data->name, iommu_dev->map_count);
+
+    if (iommu_dev->map_count > 0) {
+        for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
+            rec = &iommu_dev->sg_pool.slot[i];
+            if (rec->status == SG_SLOT_USED) {
+                IOMMU_ERR("Warning! buffer iova 0x%lx size 0x%lx sg 0x%lx buf %p map_usrs %d\n",
+                          rec->iova_addr, rec->iova_size,
+                          rec->sg_table_addr, rec->buf_addr, rec->map_usrs);
+            }
+        }
+
+        /* 强制清理所有残留映射，补偿相机模块的 unmap 遗漏 */
+        for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
+            rec = &iommu_dev->sg_pool.slot[i];
+            if (rec->status == SG_SLOT_USED) {
+                unsigned long iova = rec->iova_addr;
+                size_t size = rec->iova_size;
+
+                rec->map_usrs = 0;
+                rec->status = SG_SLOT_FREE;
+                iommu_dev->sg_pool.pool_cnt--;
+
+                /* 临时解锁，调用硬件操作 */
+                spin_unlock_irqrestore(&iommu_dev->pgt_lock, flags);
+                iommu_dev->ops->iova_unmap(iommu_dev, iova, size);
+                iommu_dev->ops->iova_free(iommu_dev, iova, size);
+                iommu_dev->map_count--;
+                spin_lock_irqsave(&iommu_dev->pgt_lock, flags);
+
+                IOMMU_ERR("%s: forcibly cleaned leaked mapping iova 0x%lx size 0x%zx buf %p\n",
+                          iommu_dev->init_data->name, iova, size, rec->buf_addr);
+            }
+        }
+    }
+
+    spin_unlock_irqrestore(&iommu_dev->pgt_lock, flags);
 }
 EXPORT_SYMBOL_GPL(sprd_iommu_pool_show);
 
