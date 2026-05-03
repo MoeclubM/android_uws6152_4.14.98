@@ -474,8 +474,6 @@ int sprd_iommu_map(struct device *dev, struct sprd_iommu_map_data *data)
 		goto out;
 	}
 
-	sprd_ion_set_dma(data->buf, iommu_dev->id);
-
 	buf_cached = sprd_iommu_target_buf(iommu_dev, data->buf, (unsigned long *)&iova);
 	if (buf_cached) {
 		data->iova_addr = iova;
@@ -522,8 +520,6 @@ int sprd_iommu_map(struct device *dev, struct sprd_iommu_map_data *data)
 	spin_unlock_irqrestore(&iommu_dev->pgt_lock, flag);
 	return ret;
 
-out1:
-	sprd_ion_put_dma(data->buf, iommu_dev->id);
 out:
 	spin_unlock_irqrestore(&iommu_dev->pgt_lock, flag);
 	return ret;
@@ -575,8 +571,6 @@ int sprd_iommu_unmap(struct device *dev, struct sprd_iommu_unmap_data *data)
 			goto out;
 		}
 	}
-
-	sprd_ion_put_dma(buf, iommu_dev->id);
 
 	sprd_iommu_remove_sg_iova(iommu_dev, iova, &be_free);
 	if (be_free) {
@@ -832,8 +826,6 @@ int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data
 		goto out;
 	}
 
-	sprd_ion_set_dma(data->buf, iommu_dev->id);
-
 	buf_cached = sprd_iommu_target_buf(iommu_dev, data->buf, (unsigned long *)&iova);
 	if (buf_cached) {
 		data->iova_addr = iova;
@@ -880,8 +872,6 @@ int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data
 	spin_unlock_irqrestore(&iommu_dev->pgt_lock, flag);
 	return ret;
 
-out1:
-	sprd_ion_put_dma(data->buf, iommu_dev->id);
 out:
 	spin_unlock_irqrestore(&iommu_dev->pgt_lock, flag);
 	return ret;
@@ -933,8 +923,6 @@ int sprd_iommu_unmap_with_idx(struct device *dev, struct sprd_iommu_unmap_data *
 			goto out;
 		}
 	}
-
-	sprd_ion_put_dma(buf, iommu_dev->id);
 
 	sprd_iommu_remove_sg_iova(iommu_dev, iova, &be_free);
 	if (be_free) {
