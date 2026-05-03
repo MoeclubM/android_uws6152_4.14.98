@@ -339,28 +339,6 @@ static bool sprd_iommu_remove_sg_iova(struct sprd_iommu_dev *iommu_dev,
 	return false;
 }
 
-static bool sprd_iommu_clear_sg_iova(struct sprd_iommu_dev *iommu_dev,
-				     void *buf_addr, unsigned long sg_addr,
-				     unsigned long size, unsigned long *iova)
-{
-	int i;
-	struct sprd_iommu_sg_rec *rec;
-	for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
-		rec = &iommu_dev->sg_pool.slot[i];
-		if (rec->status == SG_SLOT_USED &&
-		    rec->buf_addr == buf_addr &&
-		    rec->sg_table_addr == sg_addr &&
-		    rec->iova_size == size) {
-			rec->map_usrs = 0;
-			rec->status = SG_SLOT_FREE;
-			iommu_dev->sg_pool.pool_cnt--;
-			*iova = rec->iova_addr;
-			return true;
-		}
-	}
-	return false;
-}
-
 /* ============================================================================
  * Notifier callback for orphan buffer cleanup (global, traverses all devices)
  * ============================================================================
