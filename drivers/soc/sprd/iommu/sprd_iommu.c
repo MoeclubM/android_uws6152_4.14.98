@@ -489,7 +489,7 @@ int sprd_iommu_map(struct device *dev, struct sprd_iommu_map_data *data)
 		       iommu_dev->init_data->name, iova, data->iova_size, data->buf);
 		data->iova_addr = 0;
 		ret = -ENOMEM;
-		goto out1;
+		goto out;
 	}
 
 	ret = iommu_dev->ops->iova_map(iommu_dev, iova, data->iova_size, table, data);
@@ -499,7 +499,7 @@ int sprd_iommu_map(struct device *dev, struct sprd_iommu_map_data *data)
 		iommu_dev->ops->iova_free(iommu_dev, iova, data->iova_size);
 		data->iova_addr = 0;
 		ret = -ENOMEM;
-		goto out1;
+		goto out;
 	}
 
 	iommu_dev->map_count++;
@@ -512,7 +512,7 @@ int sprd_iommu_map(struct device *dev, struct sprd_iommu_map_data *data)
 		iommu_dev->ops->iova_unmap(iommu_dev, iova, data->iova_size);
 		iommu_dev->ops->iova_free(iommu_dev, iova, data->iova_size);
 		ret = -ENOMEM;
-		goto out1;
+		goto out;
 	}
 
 	IOMMU_DEBUG("%s iova 0x%lx size 0x%zx buf %p\n",
@@ -841,7 +841,7 @@ int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data
 		       iommu_dev->init_data->name, iova, data->iova_size, data->buf);
 		data->iova_addr = 0;
 		ret = -ENOMEM;
-		goto out1;
+		goto out;
 	}
 
 	ret = iommu_dev->ops->iova_map(iommu_dev, iova, data->iova_size, table, data);
@@ -851,7 +851,7 @@ int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data
 		iommu_dev->ops->iova_free(iommu_dev, iova, data->iova_size);
 		data->iova_addr = 0;
 		ret = -ENOMEM;
-		goto out1;
+		goto out;
 	}
 
 	iommu_dev->map_count++;
@@ -864,7 +864,7 @@ int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data
 		iommu_dev->ops->iova_unmap(iommu_dev, iova, data->iova_size);
 		iommu_dev->ops->iova_free(iommu_dev, iova, data->iova_size);
 		ret = -ENOMEM;
-		goto out1;
+		goto out;
 	}
 
 	IOMMU_DEBUG("%s iova 0x%lx size 0x%zx buf %p\n",
