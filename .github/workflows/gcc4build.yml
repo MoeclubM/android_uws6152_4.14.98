@@ -3,6 +3,9 @@ name: Build Pure Kernel (gcc 4.9)
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
