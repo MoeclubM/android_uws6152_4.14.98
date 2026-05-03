@@ -368,30 +368,49 @@ static bool sprd_iommu_clear_sg_iova(struct sprd_iommu_dev *iommu_dev,
 static int sprd_iommu_notify_callback(struct notifier_block *nb,
                                       unsigned long action, void *data)
 {
-    struct sprd_iommu_unmap_data unmap_data = {0};
-    struct sg_table *table = NULL;
-    void *buf = data; 
-    int ret, i;
+    void *buf = data;  /* data is ion_buffer pointer */
+    int i;
 
     if (!buf)
         return NOTIFY_OK;
 
-    /* 通过 ION API 获取 sg_table，不依赖 ion_buffer 结构体 */
-    ret = sprd_ion_get_sg(buf, &table);
-    if (ret || !table)
-        return NOTIFY_OK;
-
-    unmap_data.buf = buf;
-    unmap_data.table = table;
-    unmap_data.iova_size = 0; 
-    unmap_data.ch_type = SPRD_IOMMU_FM_CH_RW;
-
+    /* For each enabled IOMMU device, force unmapping of this buffer */
     for (i = 0; i < SPRD_IOMMU_MAX; i++) {
-        if (sprd_iommu_list[i].enabled && sprd_iommu_list[i].iommu_dev) {
-            unmap_data.dev_id = i;
-            sprd_iommu_unmap_orphaned(&unmap_data);
+        struct sprd_iommu_dev *dev = sprd_iommu_list[i].iommu_dev;
+        struct sprd_iommu_sg_rec *rec;
+        int j;
+        unsigned long flags;
+
+        if (!dev || !sprd_iommu_list[i].enabled)
+            continue;
+
+        spin_lock_irqsave(&dev->pgt_lock, flags);
+        for (j = 0; j < SPRD_MAX_SG_CACHED_CNT; j++) {
+            rec = &dev->sg_pool.slot[j];
+            if (rec->status == SG_SLOT_USED && rec->buf_addr == buf) {
+                unsigned long iova = rec->iova_addr;
+                size_t size = rec->iova_size;
+
+                /* Clear the cache slot */
+                rec->map_usrs = 0;
+                rec->status = SG_SLOT_FREE;
+                dev->sg_pool.pool_cnt--;
+
+                spin_unlock_irqrestore(&dev->pgt_lock, flags);
+                /* Unmap from hardware */
+                dev->ops->iova_unmap(dev, iova, size);
+                dev->map_count--;
+                dev->ops->iova_free(dev, iova, size);
+                IOMMU_ERR("%s: force orphan unmap buf %p iova 0x%lx size 0x%zx\n",
+                          dev->init_data->name, buf, iova, size);
+                spin_lock_irqsave(&dev->pgt_lock, flags);
+                /* Restart scanning, as the pool may have changed */
+                j = -1;
+            }
         }
+        spin_unlock_irqrestore(&dev->pgt_lock, flags);
     }
+
     return NOTIFY_OK;
 }
 
@@ -599,17 +618,15 @@ EXPORT_SYMBOL(sprd_iommu_unmap);
 
 int sprd_iommu_unmap_orphaned(struct sprd_iommu_unmap_data *data)
 {
-    int ret;
     struct sprd_iommu_dev *iommu_dev;
-    unsigned long iova = 0;
-    unsigned long flag = 0;
-    size_t iova_size;
-    void *buf;
+    unsigned long flags;
+    int i;
 
-    if (!data || !data->buf || !data->table) {
+    if (!data || !data->buf) {
         IOMMU_ERR("null parameter error! data %p\n", data);
         return -EINVAL;
     }
+
     if (data->dev_id >= SPRD_IOMMU_MAX) {
         IOMMU_ERR("dev id error %d\n", data->dev_id);
         return -EINVAL;
@@ -621,52 +638,31 @@ int sprd_iommu_unmap_orphaned(struct sprd_iommu_unmap_data *data)
         return -EINVAL;
     }
 
-    buf = data->buf;
-    iova_size = data->iova_size;
+    /* Loosen the search: just match buf_addr */
+    spin_lock_irqsave(&iommu_dev->pgt_lock, flags);
+    for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
+        struct sprd_iommu_sg_rec *rec = &iommu_dev->sg_pool.slot[i];
+        if (rec->status == SG_SLOT_USED && rec->buf_addr == data->buf) {
+            unsigned long iova = rec->iova_addr;
+            size_t size = rec->iova_size;
 
-    spin_lock_irqsave(&iommu_dev->pgt_lock, flag);
+            rec->map_usrs = 0;
+            rec->status = SG_SLOT_FREE;
+            iommu_dev->sg_pool.pool_cnt--;
 
-    /* 如果调用者未提供 iova_size（例如从 notifier 来），则从 sg 缓存中查找 */
-    if (iova_size == 0) {
-        int i;
-        bool found = false;
-        for (i = 0; i < SPRD_MAX_SG_CACHED_CNT; i++) {
-            struct sprd_iommu_sg_rec *rec = &iommu_dev->sg_pool.slot[i];
-            if (rec->status == SG_SLOT_USED &&
-                rec->buf_addr == buf &&
-                rec->sg_table_addr == (unsigned long)data->table) {
-                iova_size = rec->iova_size;
-                iova = rec->iova_addr;
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            IOMMU_ERR("%s: sg not found in pool for buf %p\n",
-                      iommu_dev->init_data->name, buf);
-            spin_unlock_irqrestore(&iommu_dev->pgt_lock, flag);
-            return -EINVAL;
+            spin_unlock_irqrestore(&iommu_dev->pgt_lock, flags);
+            iommu_dev->ops->iova_unmap(iommu_dev, iova, size);
+            iommu_dev->map_count--;
+            iommu_dev->ops->iova_free(iommu_dev, iova, size);
+            IOMMU_ERR("%s: orphan unmap buf %p iova 0x%lx size 0x%zx (dev_id %d)\n",
+                      iommu_dev->init_data->name, data->buf, iova, size, data->dev_id);
+            return 0;
         }
     }
+    spin_unlock_irqrestore(&iommu_dev->pgt_lock, flags);
 
-    ret = sprd_iommu_clear_sg_iova(iommu_dev, buf,
-                                   (unsigned long)(data->table),
-                                   iova_size, &iova);
-    if (ret) {
-        ret = iommu_dev->ops->iova_unmap_orphaned(iommu_dev, iova, iova_size);
-        iommu_dev->map_count--;
-        iommu_dev->ops->iova_free(iommu_dev, iova, iova_size);
-        IOMMU_ERR("%s iova leak error, buf %p id %d iova 0x%lx size 0x%zx\n",
-                  iommu_dev->init_data->name, buf, data->dev_id,
-                  iova, iova_size);
-    } else {
-        IOMMU_ERR("%s illegal error buf %p id %d size 0x%zx\n",
-                  iommu_dev->init_data->name, buf, data->dev_id,
-                  iova_size);
-    }
-
-    spin_unlock_irqrestore(&iommu_dev->pgt_lock, flag);
-    return ret;
+    IOMMU_ERR("%s: no orphan mapping for buf %p\n", iommu_dev->init_data->name, data->buf);
+    return -EINVAL;
 }
 
 int sprd_iommu_suspend(struct device *dev)
