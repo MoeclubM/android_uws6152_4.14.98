@@ -46,17 +46,6 @@
 #define pr_fmt(fmt) "CPP_CORE: %d %d %s : "\
 	fmt, current->pid, __LINE__, __func__
 
-/* Compatibility wrapper for devm_clk_get_optional on < 4.17 kernels */
-static inline struct clk *devm_clk_get_optional_compat(
-    struct device *dev, const char *id)
-{
-    struct clk *clk = devm_clk_get(dev, id);
-    if (clk == ERR_PTR(-ENOENT))
-        return NULL;
-    return clk;
-}
-#define devm_clk_get_optional(dev, id) devm_clk_get_optional_compat(dev, id)
-
 #define CPP_DEVICE_NAME             "sprd_cpp"
 #define ROT_TIMEOUT                 5000
 #define SCALE_TIMEOUT               5000
@@ -183,76 +172,73 @@ static const cpp_isr cpp_isr_list[CPP_IRQ_NUMBER] = {
 	sprd_cppcore_dma_done,
 };
 
-static void sprd_cppcore_module_reset(
-	struct cpp_device *dev)
+static void sprd_cppcore_module_reset(struct cpp_device *dev)
 {
-	if (!dev) {
-		pr_err("fail to get valid input ptr\n");
-		return;
-	}
+    if (!dev || !dev->syscon_regs[CPP_RST].gpr) {
+        pr_warn("cpp_rst regmap not available, skip reset\n");
+        return;
+    }
 
-	regmap_update_bits(dev->syscon_regs[CPP_RST].gpr,
-		dev->syscon_regs[CPP_RST].reg,
-		dev->syscon_regs[CPP_RST].mask,
-		dev->syscon_regs[CPP_RST].mask);
-	udelay(2);
-	regmap_update_bits(dev->syscon_regs[CPP_RST].gpr,
-		dev->syscon_regs[CPP_RST].reg,
-		dev->syscon_regs[CPP_RST].mask,
-		~dev->syscon_regs[CPP_RST].mask);
+    regmap_update_bits(dev->syscon_regs[CPP_RST].gpr,
+        dev->syscon_regs[CPP_RST].reg,
+        dev->syscon_regs[CPP_RST].mask,
+        dev->syscon_regs[CPP_RST].mask);
+    udelay(2);
+    regmap_update_bits(dev->syscon_regs[CPP_RST].gpr,
+        dev->syscon_regs[CPP_RST].reg,
+        dev->syscon_regs[CPP_RST].mask,
+        ~dev->syscon_regs[CPP_RST].mask);
 }
 
-static void sprd_cppcore_scale_reset(
-	struct cpp_device *dev)
+static void sprd_cppcore_scale_reset(struct cpp_device *dev)
 {
-	if (!dev) {
-		pr_err("fail to get valid input ptr\n");
-		return;
-	}
-	regmap_update_bits(dev->syscon_regs[CPP_PATH0_RST].gpr,
-		dev->syscon_regs[CPP_PATH0_RST].reg,
-		dev->syscon_regs[CPP_PATH0_RST].mask,
-		dev->syscon_regs[CPP_PATH0_RST].mask);
-	udelay(2);
-	regmap_update_bits(dev->syscon_regs[CPP_PATH0_RST].gpr,
-		dev->syscon_regs[CPP_PATH0_RST].reg,
-		dev->syscon_regs[CPP_PATH0_RST].mask,
-		~dev->syscon_regs[CPP_PATH0_RST].mask);
+    if (!dev || !dev->syscon_regs[CPP_PATH0_RST].gpr) {
+        pr_warn("path0_rst regmap not available, skip reset\n");
+        return;
+    }
+    regmap_update_bits(dev->syscon_regs[CPP_PATH0_RST].gpr,
+        dev->syscon_regs[CPP_PATH0_RST].reg,
+        dev->syscon_regs[CPP_PATH0_RST].mask,
+        dev->syscon_regs[CPP_PATH0_RST].mask);
+    udelay(2);
+    regmap_update_bits(dev->syscon_regs[CPP_PATH0_RST].gpr,
+        dev->syscon_regs[CPP_PATH0_RST].reg,
+        dev->syscon_regs[CPP_PATH0_RST].mask,
+        ~dev->syscon_regs[CPP_PATH0_RST].mask);
 }
 
 static void sprd_cppcore_rot_reset(struct cpp_device *dev)
 {
-	if (!dev) {
-		pr_err("fail to get valid input ptr\n");
-		return;
-	}
-	regmap_update_bits(dev->syscon_regs[CPP_PATH1_RST].gpr,
-		dev->syscon_regs[CPP_PATH1_RST].reg,
-		dev->syscon_regs[CPP_PATH1_RST].mask,
-		dev->syscon_regs[CPP_PATH1_RST].mask);
-	udelay(2);
-	regmap_update_bits(dev->syscon_regs[CPP_PATH1_RST].gpr,
-		dev->syscon_regs[CPP_PATH1_RST].reg,
-		dev->syscon_regs[CPP_PATH1_RST].mask,
-		~dev->syscon_regs[CPP_PATH1_RST].mask);
+    if (!dev || !dev->syscon_regs[CPP_PATH1_RST].gpr) {
+        pr_warn("path1_rst regmap not available, skip reset\n");
+        return;
+    }
+    regmap_update_bits(dev->syscon_regs[CPP_PATH1_RST].gpr,
+        dev->syscon_regs[CPP_PATH1_RST].reg,
+        dev->syscon_regs[CPP_PATH1_RST].mask,
+        dev->syscon_regs[CPP_PATH1_RST].mask);
+    udelay(2);
+    regmap_update_bits(dev->syscon_regs[CPP_PATH1_RST].gpr,
+        dev->syscon_regs[CPP_PATH1_RST].reg,
+        dev->syscon_regs[CPP_PATH1_RST].mask,
+        ~dev->syscon_regs[CPP_PATH1_RST].mask);
 }
 
-static void sprd_cppcore_dma_reset(
-	struct cpp_device *dev)
+static void sprd_cppcore_dma_reset(struct cpp_device *dev)
 {
-	if (!dev) {
-		pr_err("fail to get valid input ptr\n");
-		return;
-	}
-	regmap_update_bits(dev->syscon_regs[CPP_DMA_RST].gpr,
-		dev->syscon_regs[CPP_DMA_RST].reg,
-		dev->syscon_regs[CPP_DMA_RST].mask,
-		dev->syscon_regs[CPP_DMA_RST].mask);
-	udelay(2);
-	regmap_update_bits(dev->syscon_regs[CPP_DMA_RST].gpr,
-		dev->syscon_regs[CPP_DMA_RST].reg,
-		dev->syscon_regs[CPP_DMA_RST].mask,
-		~dev->syscon_regs[CPP_DMA_RST].mask);
+    if (!dev || !dev->syscon_regs[CPP_DMA_RST].gpr) {
+        pr_warn("dma_rst regmap not available, skip reset\n");
+        return;
+    }
+    regmap_update_bits(dev->syscon_regs[CPP_DMA_RST].gpr,
+        dev->syscon_regs[CPP_DMA_RST].reg,
+        dev->syscon_regs[CPP_DMA_RST].mask,
+        dev->syscon_regs[CPP_DMA_RST].mask);
+    udelay(2);
+    regmap_update_bits(dev->syscon_regs[CPP_DMA_RST].gpr,
+        dev->syscon_regs[CPP_DMA_RST].reg,
+        dev->syscon_regs[CPP_DMA_RST].mask,
+        ~dev->syscon_regs[CPP_DMA_RST].mask);
 }
 
 static void sprd_cppcore_iommu_reg_trace(
