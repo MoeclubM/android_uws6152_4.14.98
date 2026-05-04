@@ -21,7 +21,7 @@ KO_MODULE_SRC += $(wildcard $(KO_MODULE_PATH)/$(FD_DIR)/*.c)
 #
 # Build Options
 #
-ccflags-y += -I$(KO_MODULE_PATH)/../core/isp2.6/adpt/sharkl5pro/inc
+ccflags-y += -I$(KO_MODULE_PATH)/../core/isp2.6/adpt/sharkl5/inc
 ccflags-y += -I$(KO_MODULE_PATH)/../core/isp2.6/inc/
 ccflags-y += -I$(KO_MODULE_PATH)/../common
 ccflags-y += -I$(KO_MODULE_PATH)/../interface
