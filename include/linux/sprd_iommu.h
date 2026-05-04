@@ -3,7 +3,6 @@
 
 #include <linux/scatterlist.h>
 #include <asm/cacheflush.h>
-#include <linux/notifier.h>
 
 #define GSP_VSP_IOMMU_SIZE		(2 * 256 * 1024)
 #define DCAM_ISP_IOMMU_SIZE	(26 * 100 * 1024)
@@ -61,6 +60,8 @@ enum sprd_iommu_id {
 	SPRD_IOMMU_AI,
 	SPRD_IOMMU_EPP,
 	SPRD_IOMMU_EDP,
+	SPRD_IOMMU_IDMA,
+	SPRD_IOMMU_VDMA,
 	SPRD_IOMMU_MAX,
 };
 
@@ -138,18 +139,20 @@ struct sprd_iommu_list_data {
 int sprd_iommu_attach_device(struct device *dev);
 int sprd_iommu_dettach_device(struct device *dev);
 
-int sprd_iommu_map(struct device *dev, struct sprd_iommu_map_data *data);
-int sprd_iommu_unmap(struct device *dev, struct sprd_iommu_unmap_data *data);
+int sprd_iommu_map(struct device *dev,
+		struct sprd_iommu_map_data *data);
+int sprd_iommu_map_with_idx(struct device *dev,
+			    struct sprd_iommu_map_data *data, int idx);
+int sprd_iommu_map_single_page(struct device *dev,
+			       struct sprd_iommu_map_data *data);
+int sprd_iommu_unmap(struct device *dev,
+		struct sprd_iommu_unmap_data *data);
+int sprd_iommu_unmap_with_idx(struct device *dev,
+		struct sprd_iommu_unmap_data *data, int idx);
 int sprd_iommu_unmap_orphaned(struct sprd_iommu_unmap_data *data);
 int sprd_iommu_suspend(struct device *dev);
 int sprd_iommu_resume(struct device *dev);
 int sprd_iommu_restore(struct device *dev);
-/* Compatibility APIs for legacy camera modules */
-int sprd_iommu_map_single_page(struct device *dev, struct sprd_iommu_map_data *data);
-int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data, int idx);
-int sprd_iommu_unmap_with_idx(struct device *dev, struct sprd_iommu_unmap_data *data, int idx);
-void sprd_iommu_pool_show(struct device *dev);
-void sprd_iommu_reg_show(struct device *dev);
 int sprd_iommu_set_cam_bypass(bool vaor_bp_en);
 #else
 static inline int sprd_iommu_attach_device(struct device *dev)
@@ -193,24 +196,6 @@ static inline int sprd_iommu_restore(struct device *dev)
 {
 	return -ENODEV;
 }
-
-static inline int sprd_iommu_map_single_page(struct device *dev,
-					     struct sprd_iommu_map_data *data)
-{
-	return -ENODEV;
-}
-static inline int sprd_iommu_map_with_idx(struct device *dev,
-					  struct sprd_iommu_map_data *data, int idx)
-{
-	return -ENODEV;
-}
-static inline int sprd_iommu_unmap_with_idx(struct device *dev,
-					    struct sprd_iommu_unmap_data *data, int idx)
-{
-	return -ENODEV;
-}
-static inline void sprd_iommu_pool_show(struct device *dev) { }
-static inline void sprd_iommu_reg_show(struct device *dev) { }
 #endif
 
 struct sprd_iommu_ops {
@@ -248,6 +233,24 @@ enum IOMMU_ID {
 	IOMMU_EX_AI,
 	IOMMU_EX_EPP,
 	IOMMU_EX_EDP,
+	IOMMU_EX_IDMA,
+	IOMMU_EX_VDMA,
+	/*for sharkle*/
+	IOMMU_EXLE_VSP,
+	IOMMU_EXLE_DCAM,
+	IOMMU_EXLE_CPP,
+	IOMMU_EXLE_GSP,
+	IOMMU_EXLE_JPG,
+	IOMMU_EXLE_DISP,
+	IOMMU_EXLE_ISP,
+	/*for pike2*/
+	IOMMU_EXPK2_VSP,
+	IOMMU_EXPK2_DCAM,
+	IOMMU_EXPK2_CPP,
+	IOMMU_EXPK2_GSP,
+	IOMMU_EXPK2_JPG,
+	IOMMU_EXPK2_DISP,
+	IOMMU_EXPK2_ISP,
 	/*for sharkl3*/
 	IOMMU_EXL3_VSP,
 	IOMMU_EXL3_DCAM,
@@ -285,6 +288,8 @@ enum IOMMU_ID {
 	IOMMU_VAUL5P_AI,
 	IOMMU_VAUL5P_EPP,
 	IOMMU_VAUL5P_EDP,
+	IOMMU_VAUL5P_IDMA,
+	IOMMU_VAUL5P_VDMA,
 	IOMMU_MAX,
 };
 extern struct sprd_iommu_ops sprd_iommuex_hw_ops;
@@ -304,15 +309,5 @@ extern struct sprd_iommu_ops sprd_iommuvau_hw_ops;
 #define IOMMU_WARN(fmt, ...) \
 	pr_warn(IOMMU_TAG  "%s()-" pr_fmt(fmt), __func__, ##__VA_ARGS__)
 
-/* compat APIs */
-int sprd_iommu_map_single_page(struct device *dev, struct sprd_iommu_map_data *data);
-int sprd_iommu_map_with_idx(struct device *dev, struct sprd_iommu_map_data *data, int idx);
-int sprd_iommu_unmap_with_idx(struct device *dev, struct sprd_iommu_unmap_data *data, int idx);
-void sprd_iommu_pool_show(struct device *dev);
-void sprd_iommu_reg_show(struct device *dev);
-
-/* global notifier chain */
-extern struct blocking_notifier_head sprd_iommu_notif_chain;
-int sprd_iommu_notifier_call_chain(void *data);
 
 #endif
