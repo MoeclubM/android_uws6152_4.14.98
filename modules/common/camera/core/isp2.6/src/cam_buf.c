@@ -699,35 +699,38 @@ int cam_buf_iommu_unmap(struct camera_buf *buf_info)
 				buf_info->iova[i] = 0;
 			}
 		}
-	} else {
-		/* 2. dev 为空时，遍历所有已注册的 IOMMU 设备，尝试清理 */
-		pr_info("buf dev %p, state 0x%x, try all iommu devs\n",
-			buf_info->dev, buf_info->mapping_state);
-		for (j = 0; j < CAM_IOMMUDEV_MAX; j++) {
-			dev_info = &s_iommudevs[j];
-			if (!dev_info->dev || !dev_info->iommu_en)
-				continue;
-			for (i = 0; i < 3; i++) {
-				if (buf_info->size[i] <= 0 || buf_info->iova[i] == 0)
-					continue;
-				if (!buf_info->buf_sec) {
-					memset(&unmap_data, 0, sizeof(unmap_data));
-					unmap_data.iova_addr = buf_info->iova[i] - buf_info->offset[i];
-					unmap_data.iova_size = buf_info->size[i];
-					unmap_data.ch_type = SPRD_IOMMU_FM_CH_RW;
-					unmap_data.buf = NULL;
-					if (sprd_iommu_unmap(dev_info->dev, &unmap_data) == 0) {
-						pr_info("unmap on dev %d success\n", j);
-						if (g_mem_dbg)
-							atomic_dec(&g_mem_dbg->iommu_map_cnt[j]);
-						buf_info->iova[i] = 0;
-						/* 一个 buf 不可能映射到多个设备，清完就跳出 */
-						break;
-					}
-				}
-			}
-		}
-	}
+    } else {
+    	/* 2. dev 为空时，遍历所有已注册的 IOMMU 设备，尝试清理 */
+    	pr_info("buf dev %p, state 0x%x, try all iommu devs\n",
+    		buf_info->dev, buf_info->mapping_state);
+    	for (j = 0; j < CAM_IOMMUDEV_MAX; j++) {
+    		dev_info = &s_iommudevs[j];
+    		if (!dev_info->dev || !dev_info->iommu_en)
+    			continue;
+    		for (i = 0; i < 3; i++) {
+    			if (buf_info->size[i] <= 0 || buf_info->iova[i] == 0)
+    				continue;
+    			if (!buf_info->buf_sec && buf_info->ionbuf[i]) {
+    				struct sprd_iommu_unmap_data udata;
+    
+    				memset(&udata, 0, sizeof(udata));
+    				udata.buf = buf_info->ionbuf[i];     /* 传实际的 ion buffer */
+    				udata.table = NULL;                  /* 新版内部会自己找 sg_table */
+    				udata.iova_size = buf_info->size[i];
+    				udata.dev_id = j;                    /* 对应 SPRD_IOMMU_xxx */
+    
+    				if (sprd_iommu_unmap_orphaned(&udata) == 0) {
+    					pr_info("orphan unmap on dev %d success\n", j);
+    					if (g_mem_dbg)
+    						atomic_dec(&g_mem_dbg->iommu_map_cnt[j]);
+    					buf_info->iova[i] = 0;
+    					/* 一个 buf 只可能在一个设备上映射，清完就跳出 */
+    					break;
+    				}
+    			}
+    		}
+    	}
+    }
 
 	buf_info->dev = NULL;
 	buf_info->mapping_state &= ~CAM_BUF_MAPPING_DEV;
