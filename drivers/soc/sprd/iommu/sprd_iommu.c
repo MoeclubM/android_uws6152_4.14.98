@@ -1186,6 +1186,7 @@ int sprd_iommu_unmap_orphaned(struct sprd_iommu_unmap_data *data)
 
 	return ret;
 }
+EXPORT_SYMBOL(sprd_iommu_unmap_orphaned);
 
 int sprd_iommu_suspend(struct device *dev)
 {
