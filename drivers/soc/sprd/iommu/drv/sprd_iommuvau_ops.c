@@ -94,7 +94,7 @@ static int sprd_iommuvau_hw_init(struct sprd_iommu_dev *dev,
 		IOMMU_ERR("%s gen_pool_create error\n", data->name);
 		return -1;
 	}
-
+	gen_pool_set_algo(dev->pool, gen_pool_best_fit, NULL);
 	gen_pool_add(dev->pool, data->iova_base, data->iova_size, -1);
 	iommu_init_param.iommu_type =
 				get_iommuvau_type(data->iommuex_rev, &chip);
@@ -194,6 +194,13 @@ static int sprd_iommuvau_hw_restore(struct sprd_iommu_dev *dev)
 	return 0;
 }
 
+static int sprd_iommuvau_hw_set_bypass(struct sprd_iommu_dev *dev,
+				       bool vaor_bp_en)
+{
+	sprd_iommudrv_set_bypass(dev->private, vaor_bp_en);
+	return 0;
+}
+
 static int sprd_iommuvau_iova_unmap(struct sprd_iommu_dev *dev,
 	unsigned long iova, size_t iova_length)
 {
@@ -251,6 +258,7 @@ struct sprd_iommu_ops sprd_iommuvau_hw_ops = {
 	.iova_unmap = sprd_iommuvau_iova_unmap,
 	.backup = NULL,
 	.restore = sprd_iommuvau_hw_restore,
+	.set_bypass = sprd_iommuvau_hw_set_bypass,
 	.enable = NULL,
 	.disable = NULL,
 	.dump = NULL,
