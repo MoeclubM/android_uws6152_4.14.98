@@ -667,9 +667,9 @@ EXPORT_SYMBOL(cam_buf_iommu_map);
 
 int cam_buf_iommu_unmap(struct camera_buf *buf_info)
 {
-	int i;
+	int i, j;
 	int ret = 0;
-	struct iommudev_info *dev_info;
+	struct iommudev_info *dev_info = NULL;
 	struct sprd_iommu_unmap_data unmap_data;
 
 	if (!buf_info) {
@@ -677,42 +677,60 @@ int cam_buf_iommu_unmap(struct camera_buf *buf_info)
 		return -EFAULT;
 	}
 
-	if (!buf_info->dev ||
-		((buf_info->mapping_state & CAM_BUF_MAPPING_DEV) == 0)) {
-		pr_info("buf dev %p, may not be mapping %d\n",
-			buf_info->dev, buf_info->mapping_state);
-		return ret;
-	}
-
-	dev_info = cambuf_iommu_dev_get(CAM_IOMMUDEV_MAX, buf_info->dev);
-	if (!dev_info) {
-		pr_err("fail to get matched iommu dev.\n");
-		return -EFAULT;
-	}
-
-	for (i = 0; i < 3; i++) {
-		if (buf_info->size[i] <= 0 || buf_info->iova[i] == 0)
-			continue;
-
-		if (dev_info->iommu_en && !buf_info->buf_sec) {
-			unmap_data.iova_addr = buf_info->iova[i] - buf_info->offset[i];
-			unmap_data.iova_size = buf_info->size[i];
-			unmap_data.ch_type = SPRD_IOMMU_FM_CH_RW;
-			unmap_data.table = NULL;
-			unmap_data.buf = NULL;
-			pr_debug("upmap buf addr: %lx\n", unmap_data.iova_addr);
-			ret = sprd_iommu_unmap(buf_info->dev, &unmap_data);
-			if (ret)
-				pr_err("fail to free iommu %d\n", i);
-			if (g_mem_dbg)
-				atomic_dec(&g_mem_dbg->iommu_map_cnt[dev_info->type]);
+	/* 1. 如果有合法的 dev，走原来的精确 unmapping */
+	if (buf_info->dev && (buf_info->mapping_state & CAM_BUF_MAPPING_DEV)) {
+		dev_info = cambuf_iommu_dev_get(CAM_IOMMUDEV_MAX, buf_info->dev);
+		if (dev_info) {
+			for (i = 0; i < 3; i++) {
+				if (buf_info->size[i] <= 0 || buf_info->iova[i] == 0)
+					continue;
+				if (dev_info->iommu_en && !buf_info->buf_sec) {
+					memset(&unmap_data, 0, sizeof(unmap_data));
+					unmap_data.iova_addr = buf_info->iova[i] - buf_info->offset[i];
+					unmap_data.iova_size = buf_info->size[i];
+					unmap_data.ch_type = SPRD_IOMMU_FM_CH_RW;
+					unmap_data.buf = NULL;
+					ret = sprd_iommu_unmap(buf_info->dev, &unmap_data);
+					if (ret)
+						pr_err("fail to free iommu %d\n", i);
+					if (g_mem_dbg)
+						atomic_dec(&g_mem_dbg->iommu_map_cnt[dev_info->type]);
+				}
+				buf_info->iova[i] = 0;
+			}
 		}
-		buf_info->iova[i] = 0;
+	} else {
+		/* 2. dev 为空时，遍历所有已注册的 IOMMU 设备，尝试清理 */
+		pr_info("buf dev %p, state 0x%x, try all iommu devs\n",
+			buf_info->dev, buf_info->mapping_state);
+		for (j = 0; j < CAM_IOMMUDEV_MAX; j++) {
+			dev_info = &s_iommudevs[j];
+			if (!dev_info->dev || !dev_info->iommu_en)
+				continue;
+			for (i = 0; i < 3; i++) {
+				if (buf_info->size[i] <= 0 || buf_info->iova[i] == 0)
+					continue;
+				if (!buf_info->buf_sec) {
+					memset(&unmap_data, 0, sizeof(unmap_data));
+					unmap_data.iova_addr = buf_info->iova[i] - buf_info->offset[i];
+					unmap_data.iova_size = buf_info->size[i];
+					unmap_data.ch_type = SPRD_IOMMU_FM_CH_RW;
+					unmap_data.buf = NULL;
+					if (sprd_iommu_unmap(dev_info->dev, &unmap_data) == 0) {
+						pr_info("unmap on dev %d success\n", j);
+						if (g_mem_dbg)
+							atomic_dec(&g_mem_dbg->iommu_map_cnt[j]);
+						buf_info->iova[i] = 0;
+						/* 一个 buf 不可能映射到多个设备，清完就跳出 */
+						break;
+					}
+				}
+			}
+		}
 	}
 
 	buf_info->dev = NULL;
-	buf_info->mapping_state &= ~(CAM_BUF_MAPPING_DEV);
-	pr_debug("unmap done.\n");
+	buf_info->mapping_state &= ~CAM_BUF_MAPPING_DEV;
 	return 0;
 }
 EXPORT_SYMBOL(cam_buf_iommu_unmap);
