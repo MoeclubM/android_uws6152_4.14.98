@@ -46,6 +46,17 @@
 #define pr_fmt(fmt) "CPP_CORE: %d %d %s : "\
 	fmt, current->pid, __LINE__, __func__
 
+/* Compatibility wrapper for devm_clk_get_optional on < 4.17 kernels */
+static inline struct clk *devm_clk_get_optional_compat(
+    struct device *dev, const char *id)
+{
+    struct clk *clk = devm_clk_get(dev, id);
+    if (clk == ERR_PTR(-ENOENT))
+        return NULL;
+    return clk;
+}
+#define devm_clk_get_optional(dev, id) devm_clk_get_optional_compat(dev, id)
+
 #define CPP_DEVICE_NAME             "sprd_cpp"
 #define ROT_TIMEOUT                 5000
 #define SCALE_TIMEOUT               5000
