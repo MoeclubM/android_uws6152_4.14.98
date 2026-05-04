@@ -392,53 +392,60 @@ static int sprd_cppcore_module_enable(struct cpp_device *dev)
 		return -1;
 	}
 
-	mutex_lock(&dev->lock);
-
-	{
-		ret = clk_prepare_enable(dev->clk_mm_vsp_eb);
-		if (ret) {
-			pr_err("fail to enable clk mm vsp eb\n");
-			goto fail;
-		}
-
-		ret = clk_set_parent(dev->cpp_emc_clk,
-			dev->cpp_emc_clk_parent);
-		if (ret) {
-			pr_err("fail to set cpp emc clk\n");
-			clk_disable_unprepare(dev->clk_mm_vsp_eb);
-			goto fail;
-		}
-
-		ret = clk_prepare_enable(dev->cpp_emc_clk);
-		if (ret) {
-			pr_err("fail to enable cpp emc clk\n");
-			clk_disable_unprepare(dev->clk_mm_vsp_eb);
-			goto fail;
-		}
-
+    mutex_lock(&dev->lock);
+    
+    {
+    	if (dev->clk_mm_vsp_eb) {
+    		ret = clk_prepare_enable(dev->clk_mm_vsp_eb);
+    		if (ret) {
+    			pr_err("fail to enable clk mm vsp eb\n");
+    			goto fail;
+    		}
+    	}
+    
+    	if (dev->cpp_emc_clk && dev->cpp_emc_clk_parent) {
+    		ret = clk_set_parent(dev->cpp_emc_clk,
+    			dev->cpp_emc_clk_parent);
+    		if (ret) {
+    			pr_err("fail to set cpp emc clk\n");
+    			if (dev->clk_mm_vsp_eb)
+    				clk_disable_unprepare(dev->clk_mm_vsp_eb);
+    			goto fail;
+    		}
+    
+    		ret = clk_prepare_enable(dev->cpp_emc_clk);
+    		if (ret) {
+    			pr_err("fail to enable cpp emc clk\n");
+    			if (dev->clk_mm_vsp_eb)
+    				clk_disable_unprepare(dev->clk_mm_vsp_eb);
+    			goto fail;
+    		}
+    	}
+    
 		ret = clk_prepare_enable(dev->cpp_eb);
-		if (ret) {
-			pr_err("fail to enable cpp eb\n");
-			clk_disable_unprepare(dev->clk_mm_vsp_eb);
-			goto fail;
-		}
+        if (ret) {
+            pr_err("fail to enable cpp eb\n");
+            if (dev->clk_mm_vsp_eb)
+                clk_disable_unprepare(dev->clk_mm_vsp_eb);
+            goto fail;
+        }
 
-		ret = clk_set_parent(dev->cpp_clk,
-			dev->cpp_clk_parent);
-		if (ret) {
-			pr_err("fail to set cpp clk\n");
-			clk_disable_unprepare(dev->cpp_eb);
-			clk_disable_unprepare(dev->clk_mm_vsp_eb);
-			goto fail;
-		}
-
-		ret = clk_prepare_enable(dev->cpp_clk);
-		if (ret) {
-			pr_err("fail to enable cpp clk\n");
-			clk_disable_unprepare(dev->cpp_eb);
-			clk_disable_unprepare(dev->clk_mm_vsp_eb);
-			goto fail;
-		}
+        ret = clk_set_parent(dev->cpp_clk, dev->cpp_clk_parent);
+        if (ret) {
+            pr_err("fail to set cpp clk\n");
+            clk_disable_unprepare(dev->cpp_eb);
+            if (dev->clk_mm_vsp_eb)
+                clk_disable_unprepare(dev->clk_mm_vsp_eb);
+            goto fail;
+        }
+        ret = clk_prepare_enable(dev->cpp_clk);
+        if (ret) {
+            pr_err("fail to enable cpp clk\n");
+            clk_disable_unprepare(dev->cpp_eb);
+            if (dev->clk_mm_vsp_eb)
+                clk_disable_unprepare(dev->clk_mm_vsp_eb);
+            goto fail;
+        }
 
 		sprd_cppcore_module_reset(dev);
 
@@ -465,15 +472,20 @@ static void sprd_cppcore_module_disable(struct cpp_device *dev)
 		return;
 	}
 
-	mutex_lock(&dev->lock);
-	clk_set_parent(dev->cpp_clk, dev->cpp_clk_default);
-	clk_disable_unprepare(dev->cpp_clk);
-	clk_disable_unprepare(dev->cpp_eb);
-	clk_set_parent(dev->cpp_emc_clk, dev->cpp_emc_clk_default);
-	clk_disable_unprepare(dev->cpp_emc_clk);
-	clk_disable_unprepare(dev->clk_mm_vsp_eb);
-
-	mutex_unlock(&dev->lock);
+    mutex_lock(&dev->lock);
+    clk_set_parent(dev->cpp_clk, dev->cpp_clk_default);
+    clk_disable_unprepare(dev->cpp_clk);
+    clk_disable_unprepare(dev->cpp_eb);
+    
+    if (dev->cpp_emc_clk && dev->cpp_emc_clk_default) {
+    	clk_set_parent(dev->cpp_emc_clk, dev->cpp_emc_clk_default);
+    	clk_disable_unprepare(dev->cpp_emc_clk);
+    }
+    
+    if (dev->clk_mm_vsp_eb)
+    	clk_disable_unprepare(dev->clk_mm_vsp_eb);
+    
+    mutex_unlock(&dev->lock);
 }
 
 static void sprd_cppcore_register_isr(struct cpp_device *dev,
@@ -1121,12 +1133,13 @@ static int sprd_cppcore_probe(struct platform_device *pdev)
 	atomic_set(&dev->users, 0);
 
 	pr_info("sprd cpp probe pdev name %s\n", pdev->name);
+    
+    dev->clk_mm_vsp_eb = devm_clk_get_optional(&pdev->dev, "clk_mm_vsp_eb");
+    if (IS_ERR(dev->clk_mm_vsp_eb)) {
+        ret = PTR_ERR(dev->clk_mm_vsp_eb);
+        goto misc_fail;
+    }
 
-	dev->clk_mm_vsp_eb = devm_clk_get(&pdev->dev, "clk_mm_vsp_eb");
-	if (IS_ERR_OR_NULL(dev->clk_mm_vsp_eb)) {
-		ret =  PTR_ERR(dev->clk_mm_vsp_eb);
-		goto misc_fail;
-	}
 
 	dev->cpp_eb = devm_clk_get(&pdev->dev, "cpp_eb");
 	if (IS_ERR_OR_NULL(dev->cpp_eb)) {
@@ -1152,24 +1165,28 @@ static int sprd_cppcore_probe(struct platform_device *pdev)
 		goto misc_fail;
 	}
 
-	dev->cpp_emc_clk = devm_clk_get(&pdev->dev, "clk_mm_vsp_emc");
-	if (IS_ERR_OR_NULL(dev->cpp_emc_clk)) {
-		ret = PTR_ERR(dev->cpp_emc_clk);
-		goto misc_fail;
-	}
+    dev->cpp_emc_clk = devm_clk_get_optional(&pdev->dev, "clk_mm_vsp_emc");
+    if (IS_ERR(dev->cpp_emc_clk)) {
+    	ret = PTR_ERR(dev->cpp_emc_clk);
+    	goto misc_fail;
+    }
 
-	dev->cpp_emc_clk_parent = devm_clk_get(&pdev->dev,
-		"clk_mm_vsp_emc_parent");
-	if (IS_ERR_OR_NULL(dev->cpp_emc_clk_parent)) {
-		ret = PTR_ERR(dev->cpp_emc_clk_parent);
-		goto misc_fail;
-	}
+    dev->cpp_emc_clk_parent = devm_clk_get_optional(&pdev->dev,
+    	"clk_mm_vsp_emc_parent");
+    if (IS_ERR(dev->cpp_emc_clk_parent)) {
+    	ret = PTR_ERR(dev->cpp_emc_clk_parent);
+    	goto misc_fail;
+    }
 
-	dev->cpp_emc_clk_default = clk_get_parent(dev->cpp_emc_clk);
-	if (IS_ERR_OR_NULL(dev->cpp_emc_clk_default)) {
-		ret = PTR_ERR(dev->cpp_emc_clk_default);
-		goto misc_fail;
-	}
+    if (dev->cpp_emc_clk) {
+    	dev->cpp_emc_clk_default = clk_get_parent(dev->cpp_emc_clk);
+    	if (IS_ERR_OR_NULL(dev->cpp_emc_clk_default)) {
+    		ret = PTR_ERR(dev->cpp_emc_clk_default);
+    		goto misc_fail;
+    	}
+    } else {
+    	dev->cpp_emc_clk_default = NULL;
+    }
 
 	reg_base = of_iomap(np, 0);
 	if (IS_ERR_OR_NULL(reg_base)) {
