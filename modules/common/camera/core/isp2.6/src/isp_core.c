@@ -1176,7 +1176,7 @@ static struct camera_frame *ispcore_path_out_frame_get(
 				tmp->valid_out_frame = 1;
 			break;
 		default:
-			pr_err("fail to support buf_type %d\n", tmp->stream->buf_type);
+			pr_err("fail to support buf_type %d\n", buf_type);
 			break;
 		}
 		goto exit;
@@ -2086,7 +2086,7 @@ static int ispcore_stream_state_get(struct isp_sw_context *pctx)
 		stream->cur_cnt = i;
 		stream->max_cnt = normal_cnt + postproc_cnt - 1;
 		pr_debug("stream type %d cur_cnt %d max_cnt %d\n",
-			stream->buf_type, stream->cur_cnt, stream->max_cnt);
+			stream->buf_type[0], stream->cur_cnt, stream->max_cnt);
 		ret = cam_queue_enqueue(&pctx->stream_ctrl_in_q, &stream->list);
 		if (ret) {
 			pr_info("stream state overflow\n");
