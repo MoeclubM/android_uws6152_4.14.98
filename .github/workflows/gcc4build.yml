@@ -80,7 +80,7 @@ jobs:
                             modules/common/camera/sensor \
                             modules/common/camera/flash/flash_drv \
                             modules/common/camera/flash/ocp8137 \
-                            modules/common/camera/flash/sc2703 \
+                            modules/common/camera/flash/sc2703s \
                             modules/common/camera/mmdvfs \
                             modules/common/camera/fd \
                             modules/common/camera/cpp"
