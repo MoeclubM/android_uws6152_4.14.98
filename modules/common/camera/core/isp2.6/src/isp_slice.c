@@ -2324,12 +2324,12 @@ static int ispslice_ltm_info_cfg(void *cfg_in,
 		slc_ltm_map->tile_start_y = prtl->tile_start_y_rtl;
 		slc_ltm_map->mem_addr = map->mem_init_addr +
 			prtl->tile_index_xs * 128 * 2;
-		pr_debug("ltm slice info: tile_num_x[%d], tile_num_y[%d], tile_right_flag[%d] \
-			tile_left_flag[%d], tile_start_x[%d], tile_start_y[%d], mem_addr[0x%x]\n",
-			slc_ltm_map->tile_num_x, slc_ltm_map->tile_num_y,
-			slc_ltm_map->tile_right_flag, slc_ltm_map->tile_left_flag,
-			slc_ltm_map->tile_start_x, slc_ltm_map->tile_start_y,
-			slc_ltm_map->mem_addr);
+        pr_debug("ltm slice info: tile_num_x[%d], tile_num_y[%d], tile_right_flag[%d] \
+					tile_left_flag[%d], tile_start_x[%d], tile_start_y[%d], mem_addr[0x%lx]\n",
+					slc_ltm_map->tile_num_x, slc_ltm_map->tile_num_y,
+					slc_ltm_map->tile_right_flag, slc_ltm_map->tile_left_flag,
+					slc_ltm_map->tile_start_x, slc_ltm_map->tile_start_y,
+					slc_ltm_map->mem_addr);
 	}
 
 	return ret;
