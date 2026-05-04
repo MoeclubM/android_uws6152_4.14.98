@@ -34,6 +34,7 @@ endif
 ccflags-y += -I$(KO_MODULE_PATH)/../common
 ccflags-y += -I$(KO_MODULE_PATH)/../interface
 ccflags-y += -I$(KO_MODULE_PATH)/csi2/sprd/$(CSI_DIR)
+ccflags-y += -I$(KO_MODULE_PATH)
 
 #
 # Final Objects
