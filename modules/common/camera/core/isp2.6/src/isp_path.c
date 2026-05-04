@@ -368,11 +368,11 @@ int isp_path_fetch_frm_set(struct isp_sw_context *pctx,
 	if (pctx->dev->sec_mode == SEC_SPACE_PRIORITY)
 		cam_trusty_isp_fetch_addr_set(yuv_addr[0], yuv_addr[1], yuv_addr[2]);
 
-	pr_debug("camca  isp sec_mode=%d,  %lx %lx %lx\n", pctx->dev->sec_mode,
+	pr_debug("camca  isp sec_mode=%d,  %x %x %x\n", pctx->dev->sec_mode,
 		yuv_addr[0],
 		yuv_addr[1],
 		yuv_addr[2]);
-
+	
 	return ret;
 }
 
