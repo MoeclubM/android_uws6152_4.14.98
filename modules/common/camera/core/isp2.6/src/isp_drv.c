@@ -215,7 +215,7 @@ static int ispdrv_fetch_normal_get(void *cfg_in, void *cfg_out,
 		/* same as slice starts */
 		trim_offset[0] = start_row * fetch->pitch.pitch_ch0 + (start_col >> 2) * 5 + (start_col & 0x3);
 		if (!pipe_src->fetch_path_sel)
-			pr_debug("fetch pitch %d, offset %ld, rel_pos %d, wordn %d\n",
+			pr_debug("fetch pitch %d, offset %u, rel_pos %d, wordn %d\n",
 				 fetch->pitch.pitch_ch0, trim_offset[0],
 				 mipi_byte_info, mipi_word_info);
 		break;
@@ -487,7 +487,7 @@ static int ispdrv_store_normal_get(struct isp_path_uinfo *in_ptr,
 	struct isp_store_info *store = NULL;
 
 	if (!in_ptr || !store_info) {
-		pr_err("fail to get valid input ptr %p\n", in_ptr, store_info);
+		pr_err("fail to get valid input ptr %p, store_info %p\n", in_ptr, store_info);
 		return -EFAULT;
 	}
 
@@ -608,7 +608,7 @@ static int ispdrv_thumb_scaler_get(struct isp_path_uinfo *in_ptr,
 	uint32_t align_size = 0;
 
 	if (!in_ptr || !scalerInfo) {
-		pr_err("fail to get valid input ptr %p\n", in_ptr, scalerInfo);
+		pr_err("fail to get valid input ptr %p, scalerInfo %p\n", in_ptr, scalerInfo);
 		return -EFAULT;
 	}
 
