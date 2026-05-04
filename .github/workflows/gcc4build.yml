@@ -56,6 +56,8 @@ jobs:
         run: |
           export ARCH=arm64
           export CROSS_COMPILE=aarch64-linux-android-
+
+          # ===== 1. 配置 & 编译内核本体 =====
           make sprd_sharkl5_s100_defconfig
           scripts/config --disable CONFIG_APPENDED_DTB
           scripts/config --disable CONFIG_EFI
@@ -68,9 +70,36 @@ jobs:
           make olddefconfig
           KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds"
           make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
+
+          # ===== 2. 编译内核内部模块 =====
           make modules 2>&1 | tee -a build.log
           make modules_install INSTALL_MOD_PATH=./modules_out 2>&1 | tee -a build.log
 
+          # ===== 3. 编译外部相机模块（所有需要的子模块） =====
+          EXTERNAL_MODULES="modules/common/camera/core \
+                            modules/common/camera/sensor \
+                            modules/common/camera/flash/flash_drv \
+                            modules/common/camera/flash/ocp8137 \
+                            modules/common/camera/flash/sc2703 \
+                            modules/common/camera/mmdvfs \
+                            modules/common/camera/fd \
+                            modules/common/camera/cpp"
+
+          # 所有宏（目录名必须和源码实际目录一致）
+          EXTRA_ARGS="BSP_BOARD_CAMERA_MODULE_ISP_VERSION=isp2.6"
+          EXTRA_ARGS="$EXTRA_ARGS BSP_BOARD_CAMERA_MODULE_CSI_VERSION=receiver_r2p1"
+          EXTRA_ARGS="$EXTRA_ARGS BSP_BOARD_CAMERA_MODULE_ISP_ADAPT_VERSION=sharkl5"
+          EXTRA_ARGS="$EXTRA_ARGS BSP_BOARD_CAMERA_MODULE_DVFS=sharkl5"
+          EXTRA_ARGS="$EXTRA_ARGS BSP_BOARD_CAMERA_MODULE_CPP_VERSION=lite_r4p0"
+          EXTRA_ARGS="$EXTRA_ARGS BSP_BOARD_CAMERA_MODULE_FD_VERSION=fd2.0"
+
+          for dir in $EXTERNAL_MODULES; do
+            if [ -f "$dir/Kbuild" ] || [ -f "$dir/Makefile" ]; then
+              echo "Building external module: $dir"
+              make -C . M="$dir" $EXTRA_ARGS modules 2>&1 | tee -a build.log
+              make -C . M="$dir" modules_install INSTALL_MOD_PATH=./modules_out 2>&1 | tee -a build.log
+            fi
+          done
       - name: Locate pure kernel image
         id: locate
         continue-on-error: true
