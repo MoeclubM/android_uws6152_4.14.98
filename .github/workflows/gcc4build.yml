@@ -52,6 +52,12 @@ jobs:
             -d "text=🔔 GitHub Actions: Build started at $(date -u '+%Y-%m-%d %H:%M:%S UTC')." | tee /dev/stderr
           echo "If the message above shows 'ok:true', your bot can send messages to the chat."
 
+      - name: Unshallow KernelSU submodule
+        run: |
+          cd KernelSU
+          git fetch --unshallow
+          git fetch --tags
+
       - name: Build kernel
         run: |
           export ARCH=arm64
