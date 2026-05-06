@@ -833,6 +833,11 @@ static int sc27xx_fgu_get_property(struct power_supply *psy,
 
 		break;
 
+    case POWER_SUPPLY_PROP_CALIBRATE:
+        val->intval = 0;
+        pr_err("Nya!Why you bully me?\n");
+        break;
+    
 	default:
 		ret = -EINVAL;
 		break;
