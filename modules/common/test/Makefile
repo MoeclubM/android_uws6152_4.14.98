@@ -1,1 +1,1 @@
-obj-m := test_usb_psy.o
+obj-m := test_usb_phy.o
