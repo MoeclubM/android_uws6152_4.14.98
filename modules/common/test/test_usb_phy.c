@@ -42,7 +42,6 @@ static const struct power_supply_desc test_desc = {
 static int __init test_init(void)
 {
     struct power_supply_config cfg = {0};
-    int ret;
 
     pdev = platform_device_register_simple("test_usb_psy", -1, NULL, 0);
     if (IS_ERR(pdev)) {
