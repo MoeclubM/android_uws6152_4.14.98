@@ -13,7 +13,7 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
-          ref: 'test'
+          ref: ${{ github.ref_name }}
           submodules: true
 
       - name: Install dependencies
@@ -74,7 +74,7 @@ jobs:
           sed -i '/ifdef stackp-name/,/endif/{s/exit 1/true/}' Makefile
           sed -i '/ifdef stackp-check/,/endif/{s/exit 1/true/}' Makefile
           make olddefconfig
-          KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds"
+          KCFLAGS="-Wno-error=sizeof-pointer-memaccess -Wno-error=array-bounds -Wno-error=missing-braces -Wno-error=format"
           make -j$(nproc) KCFLAGS="$KCFLAGS" 2>&1 | tee build.log
 
           # ===== 2. 编译内核内部模块 =====
@@ -88,7 +88,6 @@ jobs:
                             modules/common/camera/flash/ocp8137 \
                             modules/common/camera/flash/sc2703s \
                             modules/common/camera/mmdvfs \
-                            modules/common/test \
                             modules/common/camera/fd"
 
           # 所有宏（目录名必须和源码实际目录一致）
@@ -106,8 +105,9 @@ jobs:
               make -C . M="$dir" modules_install INSTALL_MOD_PATH=./modules_out 2>&1 | tee -a build.log
             fi
           done
+
       - name: Locate pure kernel image
-        id: locate
+        id: find_kernel
         continue-on-error: true
         run: |
           if [ -f arch/arm64/boot/Image.gz ]; then
@@ -120,7 +120,7 @@ jobs:
           fi
 
       - name: Send build.log if kernel image not found
-        if: steps.locate.outcome == 'failure'
+        if: steps.find_kernel.outcome == 'failure'
         env:
           BOT_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.TELEGRAM_TO }}
@@ -153,16 +153,35 @@ jobs:
           cd ../../../..
           ls -lh modules.tar.gz modules.zip
 
+      - name: Prepare AnyKernel3 (flattened modules)
+        env:
+          KERNEL_RELEASE: ${{ env.KERNEL_RELEASE }}
+        run: |
+          git clone --depth=1 https://github.com/ZeroDreamCat/sprd_ak3.git anykernel
+          rm -rf anykernel/.git anykernel/{README.md,ramdisk,patch}
+          rm -rf anykernel/modules/system
+
+          cp "${{ steps.find_kernel.outputs.kernel_path }}" anykernel/
+
+          MODULES_FLAT="anykernel/modules/vendor/lib/modules"
+          mkdir -p "${MODULES_FLAT}"
+          find modules_out/lib/modules/${KERNEL_RELEASE} -name "*.ko" \
+            -exec cp {} "${MODULES_FLAT}/" \;
+
+          cd anykernel
+          zip -r9 ../AnyKernel3.zip .
+          cd ..
+
       - name: gzip vmlinux
         run: gzip -9 vmlinux
 
       - name: Package all artifacts for Telegram (exclude vmlinux.gz)
         run: |
           mkdir -p telegram_artifacts
-          cp ${{ steps.locate.outputs.kernel_path }} telegram_artifacts/
+          cp ${{ steps.find_kernel.outputs.kernel_path }} telegram_artifacts/
           cp modules.tar.gz modules.zip telegram_artifacts/ 2>/dev/null || true
           cp System.map Module.symvers build.log telegram_artifacts/ 2>/dev/null || true
-          # vmlinux.gz is too large for Telegram, will be available via Release link
+          cp AnyKernel3.zip telegram_artifacts/
           cd telegram_artifacts
           zip -9 ../all_artifacts.zip *
           cd ..
@@ -175,9 +194,10 @@ jobs:
           tag_name: build-${{ github.run_id }}
           name: Build - ${{ github.sha }} (${{ github.ref_name }})
           files: |
-            ${{ steps.locate.outputs.kernel_path }}
+            ${{ steps.find_kernel.outputs.kernel_path }}
             modules.tar.gz
             modules.zip
+            AnyKernel3.zip
             build.log
             System.map
             Module.symvers
