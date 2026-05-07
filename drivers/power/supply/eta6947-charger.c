@@ -197,6 +197,7 @@ struct eta6947_charger_info {
 	struct delayed_work otg_work;
 	struct delayed_work wdt_work;
 	struct regmap *pmic;
+	struct power_supply *psy_usb_alias;
 	u32 charger_detect;
 	u32 charger_pd;
 	u32 charger_pd_mask;
@@ -322,6 +323,7 @@ static int eta6947_charger_hw_init(struct eta6947_charger_info *info)
 	ret = power_supply_get_battery_info(info->psy_usb, &bat_info);
 	if (ret) {
 		dev_warn(info->dev, "no battery information is supplied, ret = %d\n", ret);
+		voltage_max_microvolt = 4200;
 
 		/*
 		 * If no battery information is supplied, we should set
@@ -641,13 +643,6 @@ static int eta6947_charger_get_limit_current(struct eta6947_charger_info *info, 
 	return ret;
 }
 
-static int eta6947_charger_get_health(struct eta6947_charger_info *info, u32 *health)
-{
-	*health = POWER_SUPPLY_HEALTH_GOOD;
-
-	return 0;
-}
-
 static int eta6947_charger_get_online(struct eta6947_charger_info *info,
 				     u32 *online)
 {
@@ -663,6 +658,7 @@ static int eta6947_charger_feed_watchdog(struct eta6947_charger_info *info,
 					  u32 val)
 {
 	int ret;
+	(void)val;
 
 	ret = eta6947_update_bits(info, ETA6947_REG_0, ETA6947_REG_TMR_RST_OTG_STAT_MASK,
 				  ETA6947_REG_TMR_RST_OTG_STAT_MASK);
@@ -777,7 +773,7 @@ static int eta6947_charger_usb_get_property(struct power_supply *psy,
 					     union power_supply_propval *val)
 {
 	struct eta6947_charger_info *info = power_supply_get_drvdata(psy);
-	u32 cur, online, health;
+	u32 cur, online;
 	enum usb_charger_type type;
 	int ret = 0;
 
@@ -824,18 +820,10 @@ static int eta6947_charger_usb_get_property(struct power_supply *psy,
 
 		break;
 
-	case POWER_SUPPLY_PROP_HEALTH:
-		if (info->charging) {
-			val->intval = 0;
-		} else {
-			ret = eta6947_charger_get_health(info, &health);
-			if (ret)
-				goto out;
-
-			val->intval = health;
-		}
-		break;
-
+    case POWER_SUPPLY_PROP_HEALTH:
+        val->intval = POWER_SUPPLY_HEALTH_GOOD;
+        break;
+    
 	case POWER_SUPPLY_PROP_USB_TYPE:
 		type = info->usb_phy->chg_type;
 
@@ -963,6 +951,18 @@ static const struct power_supply_desc eta6947_charger_desc = {
 	.property_is_writeable	= eta6947_charger_property_is_writeable,
 	.usb_types		= eta6947_charger_usb_types,
 	.num_usb_types		= ARRAY_SIZE(eta6947_charger_usb_types),
+};
+
+static const struct power_supply_desc usb_charger_desc = {
+    .name               = "usb",
+    .type               = POWER_SUPPLY_TYPE_USB,
+    .properties         = eta6947_usb_props,
+    .num_properties     = ARRAY_SIZE(eta6947_usb_props),
+    .get_property       = eta6947_charger_usb_get_property,
+    .set_property       = eta6947_charger_usb_set_property,
+    .property_is_writeable = eta6947_charger_property_is_writeable,
+    .usb_types          = eta6947_charger_usb_types,
+    .num_usb_types      = ARRAY_SIZE(eta6947_charger_usb_types),
 };
 
 static void eta6947_charger_detect_status(struct eta6947_charger_info *info)
@@ -1246,7 +1246,15 @@ static int eta6947_charger_probe(struct i2c_client *client,
 		dev_err(dev, "failed to register power supply\n");
 		return PTR_ERR(info->psy_usb);
 	}
-
+	
+	// 注册一个名为 "usb" 的别名设备，让 Health HAL 能找到充电器在线信息
+    info->psy_usb_alias = devm_power_supply_register(dev, &usb_charger_desc, &charger_cfg);
+    if (IS_ERR(info->psy_usb_alias)) {
+        dev_err(dev, "failed to register alias usb power supply, err = %ld\n",
+                PTR_ERR(info->psy_usb_alias));
+        return PTR_ERR(info->psy_usb_alias);
+    }
+    
 	ret = eta6947_charger_hw_init(info);
 	if (ret)
 		return ret;
