@@ -88,6 +88,7 @@ jobs:
                             modules/common/camera/flash/ocp8137 \
                             modules/common/camera/flash/sc2703s \
                             modules/common/camera/mmdvfs \
+                            modules/common/test \
                             modules/common/camera/fd"
 
           # 所有宏（目录名必须和源码实际目录一致）
