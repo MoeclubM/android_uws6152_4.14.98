@@ -1,9 +1,7 @@
 #include <linux/module.h>
 #include <linux/power_supply.h>
-#include <linux/device.h>
 
 static struct power_supply *test_psy;
-static char test_status[] = "Charging";
 
 static int test_get_prop(struct power_supply *psy,
                          enum power_supply_property psp,
@@ -11,10 +9,10 @@ static int test_get_prop(struct power_supply *psy,
 {
     switch (psp) {
     case POWER_SUPPLY_PROP_ONLINE:
-        val->intval = 1;   // 充电器在线
+        val->intval = 1;   /* 充电器在线 */
         break;
     case POWER_SUPPLY_PROP_USB_TYPE:
-        val->intval = POWER_SUPPLY_USB_TYPE_DCP;  // 随便报一个充电类型
+        val->intval = POWER_SUPPLY_USB_TYPE_DCP;  /* 随便报一个充电类型 */
         break;
     case POWER_SUPPLY_PROP_STATUS:
         val->intval = POWER_SUPPLY_STATUS_CHARGING;
