@@ -1,50 +1,38 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * MiraMEMS DA217 3-Axis Accelerometer I2C driver
+ * DA217 3-Axis Accelerometer Input Driver
+ * SoraNeko fells gravity!
  *
- * Based on MiraMEMS DA280 driver and DA217 datasheet.
- * Modified for DA217 with soft reset and proper initialization.
+ * Uses polling timer to report EV_ABS (ABS_X/Y/Z) for
+ * android.hardware.sensors@1.0
  */
 
 #include <linux/module.h>
 #include <linux/i2c.h>
-#include <linux/acpi.h>
+#include <linux/input.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/delay.h>
-#include <linux/iio/iio.h>
-#include <linux/iio/sysfs.h>
+#include <linux/timer.h>
+#include <linux/jiffies.h>
+#include <linux/pm.h>
 
 #define DA217_REG_SPI_CFG      0x00
 #define DA217_REG_CHIP_ID      0x01
 #define DA217_REG_ACC_X_LSB    0x02
-#define DA217_REG_ACC_Y_LSB    0x04
-#define DA217_REG_ACC_Z_LSB    0x06
 #define DA217_REG_MODE_BW      0x11
 
 #define DA217_CHIP_ID          0x13
-
-/* MODE_BW: 
- * bit7 PWR_OFF (0=normal, 1=suspend)
- * bit1-2 BW (10=100Hz, 01=250Hz, 00/11=500Hz)
- * bit0 auto_sleep (0=disable)
- * 0x1E = 0b00011110 : PWR_OFF=0, BW=11 (500Hz), auto_sleep=0
- */
 #define DA217_MODE_ENABLE      0x1E
 #define DA217_MODE_DISABLE     0x9E
-
-/* Software reset bits in SPI_CFG: bit2 (soft_reset) and bit5 */
 #define DA217_SOFT_RESET_BITS  ((1 << 2) | (1 << 5))
 
-static const int da217_nscale = 2394180; /* 2.395019 m/s^2 per LSB */
-
-struct da217_match_data {
-    const char *name;
-    int num_channels;
-};
+#define DA217_POLL_INTERVAL    10  /* ms → 100 Hz */
 
 struct da217_data {
     struct i2c_client *client;
+    struct input_dev *input;
+    struct timer_list timer;
 };
 
 static int da217_soft_reset(struct i2c_client *client)
@@ -55,15 +43,11 @@ static int da217_soft_reset(struct i2c_client *client)
     ret = i2c_smbus_read_byte_data(client, DA217_REG_SPI_CFG);
     if (ret < 0)
         return ret;
-
     val = ret | DA217_SOFT_RESET_BITS;
     ret = i2c_smbus_write_byte_data(client, DA217_REG_SPI_CFG, val);
     if (ret < 0)
         return ret;
-
-    /* wait for reset to complete */
     msleep(20);
-
     return 0;
 }
 
@@ -73,160 +57,153 @@ static int da217_enable(struct i2c_client *client, bool enable)
     return i2c_smbus_write_byte_data(client, DA217_REG_MODE_BW, data);
 }
 
-#define DA217_CHANNEL(reg, axis) { \
-    .type = IIO_ACCEL, \
-    .address = reg, \
-    .modified = 1, \
-    .channel2 = IIO_MOD_##axis, \
-    .info_mask_separate = BIT(IIO_CHAN_INFO_RAW), \
-    .info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SCALE), \
-}
-
-static const struct iio_chan_spec da217_channels[] = {
-    DA217_CHANNEL(DA217_REG_ACC_X_LSB, X),
-    DA217_CHANNEL(DA217_REG_ACC_Y_LSB, Y),
-    DA217_CHANNEL(DA217_REG_ACC_Z_LSB, Z),
-};
-
-static int da217_read_raw(struct iio_dev *indio_dev,
-                          struct iio_chan_spec const *chan,
-                          int *val, int *val2, long mask)
+static int da217_read_xyz(struct i2c_client *client, s16 *x, s16 *y, s16 *z)
 {
-    struct da217_data *data = iio_priv(indio_dev);
+    u8 buf[6];
     int ret;
 
-    switch (mask) {
-    case IIO_CHAN_INFO_RAW:
-        ret = i2c_smbus_read_word_data(data->client, chan->address);
-        if (ret < 0)
-            return ret;
-        /* 14-bit left justified, right shift 2 */
-        *val = (s16)ret >> 2;
-        return IIO_VAL_INT;
-    case IIO_CHAN_INFO_SCALE:
-        *val = 0;
-        *val2 = da217_nscale;
-        return IIO_VAL_INT_PLUS_NANO;
-    default:
-        return -EINVAL;
+    ret = i2c_smbus_read_i2c_block_data(client, DA217_REG_ACC_X_LSB, 6, buf);
+    if (ret != 6) {
+        dev_err(&client->dev, "XYZ read error: %d\n", ret);
+        return (ret < 0) ? ret : -EIO;
     }
+
+    /* 14-bit left-justified: LSB low 2 bits are zero, MSB carries D[13:6] */
+    *x = (s16)(((buf[1] << 8) | (buf[0] & 0xFC))) >> 2;
+    *y = (s16)(((buf[3] << 8) | (buf[2] & 0xFC))) >> 2;
+    *z = (s16)(((buf[5] << 8) | (buf[4] & 0xFC))) >> 2;
+
+    return 0;
 }
 
-static const struct iio_info da217_info = {
-    .read_raw = da217_read_raw,
-};
-
-static void da217_disable(void *client)
+static void da217_timer_callback(unsigned long ptr)
 {
-    da217_enable(client, false);
+    struct da217_data *data = (struct da217_data *)ptr;
+    s16 x, y, z;
+
+    if (da217_read_xyz(data->client, &x, &y, &z) == 0) {
+        input_report_abs(data->input, ABS_X, x);
+        input_report_abs(data->input, ABS_Y, y);
+        input_report_abs(data->input, ABS_Z, z);
+        input_sync(data->input);
+    }
+
+    mod_timer(&data->timer, jiffies + msecs_to_jiffies(DA217_POLL_INTERVAL));
 }
+
+static const struct input_device_id da217_ids[] = {
+    { .driver_info = 1 },
+    { }
+};
 
 static int da217_probe(struct i2c_client *client,
                        const struct i2c_device_id *id)
 {
-    const struct da217_match_data *match_data;
-    struct iio_dev *indio_dev;
     struct da217_data *data;
+    struct input_dev *input;
     int ret;
 
     ret = i2c_smbus_read_byte_data(client, DA217_REG_CHIP_ID);
-    if (ret != DA217_CHIP_ID)
+    if (ret != DA217_CHIP_ID) {
+        dev_err(&client->dev, "Invalid chip ID: 0x%02x\n", ret);
         return (ret < 0) ? ret : -ENODEV;
-
-    /* get match data from devicetree or id table */
-    if (client->dev.of_node)
-        match_data = of_device_get_match_data(&client->dev);
-    else if (id)
-        match_data = (const struct da217_match_data *)id->driver_data;
-    else
-        return -ENODEV;
-
-    if (!match_data) {
-        dev_err(&client->dev, "Error match-data not set\n");
-        return -EINVAL;
     }
 
-    indio_dev = devm_iio_device_alloc(&client->dev, sizeof(*data));
-    if (!indio_dev)
+    data = devm_kzalloc(&client->dev, sizeof(*data), GFP_KERNEL);
+    if (!data)
         return -ENOMEM;
 
-    data = iio_priv(indio_dev);
+    input = devm_input_allocate_device(&client->dev);
+    if (!input)
+        return -ENOMEM;
+
     data->client = client;
+    data->input = input;
 
-    indio_dev->info = &da217_info;
-    indio_dev->modes = INDIO_DIRECT_MODE;
-    indio_dev->channels = da217_channels;
-    indio_dev->num_channels = match_data->num_channels;
-    indio_dev->name = match_data->name;
-
-    /* soft reset the device to known state */
     ret = da217_soft_reset(client);
     if (ret)
         return ret;
 
-    /* enable measurements */
     ret = da217_enable(client, true);
-    if (ret < 0)
-        return ret;
-
-    ret = devm_add_action_or_reset(&client->dev, da217_disable, client);
     if (ret)
         return ret;
 
-    return devm_iio_device_register(&client->dev, indio_dev);
+    input->name = "da217";
+    input->id.bustype = BUS_I2C;
+    input->dev.parent = &client->dev;
+
+    __set_bit(EV_ABS, input->evbit);
+    input_set_abs_params(input, ABS_X, -8192, 8191, 0, 0);
+    input_set_abs_params(input, ABS_Y, -8192, 8191, 0, 0);
+    input_set_abs_params(input, ABS_Z, -8192, 8191, 0, 0);
+
+    ret = input_register_device(input);
+    if (ret) {
+        da217_enable(client, false);
+        return ret;
+    }
+
+    setup_timer(&data->timer, da217_timer_callback, (unsigned long)data);
+    mod_timer(&data->timer, jiffies + msecs_to_jiffies(DA217_POLL_INTERVAL));
+
+    i2c_set_clientdata(client, data);
+    dev_info(&client->dev, "DA217 accelerometer probed successfully\n");
+    return 0;
+}
+
+static int da217_remove(struct i2c_client *client)
+{
+    struct da217_data *data = i2c_get_clientdata(client);
+
+    del_timer_sync(&data->timer);
+    da217_enable(client, false);
+    return 0;
 }
 
 static int da217_suspend(struct device *dev)
 {
-    return da217_enable(to_i2c_client(dev), false);
+    struct i2c_client *client = to_i2c_client(dev);
+    struct da217_data *data = i2c_get_clientdata(client);
+
+    del_timer_sync(&data->timer);
+    da217_enable(client, false);
+    return 0;
 }
 
 static int da217_resume(struct device *dev)
 {
-    return da217_enable(to_i2c_client(dev), true);
+    struct i2c_client *client = to_i2c_client(dev);
+    struct da217_data *data = i2c_get_clientdata(client);
+    int ret;
+
+    ret = da217_enable(client, true);
+    if (ret)
+        return ret;
+
+    mod_timer(&data->timer, jiffies + msecs_to_jiffies(DA217_POLL_INTERVAL));
+    return 0;
 }
 
 static SIMPLE_DEV_PM_OPS(da217_pm_ops, da217_suspend, da217_resume);
 
-static const struct da217_match_data da217_match_data = { "da217", 3 };
-static const struct da217_match_data da226_match_data = { "da226", 2 };
-static const struct da217_match_data da280_match_data = { "da280", 3 };
-
-static const struct acpi_device_id da217_acpi_match[] = {
-    { "NSA2513", (kernel_ulong_t)&da217_match_data },
-    { "MIRAACC", (kernel_ulong_t)&da280_match_data },
-    {}
-};
-MODULE_DEVICE_TABLE(acpi, da217_acpi_match);
-
 static const struct of_device_id da217_of_match[] = {
-    { .compatible = "da,da217", .data = &da217_match_data },
-    { .compatible = "da,da226", .data = &da226_match_data },
-    { .compatible = "da,da280", .data = &da280_match_data },
-    {}
+    { .compatible = "da,da217", },
+    { }
 };
 MODULE_DEVICE_TABLE(of, da217_of_match);
 
-static const struct i2c_device_id da217_i2c_id[] = {
-    { "da217", (kernel_ulong_t)&da217_match_data },
-    { "da226", (kernel_ulong_t)&da226_match_data },
-    { "da280", (kernel_ulong_t)&da280_match_data },
-    {}
-};
-MODULE_DEVICE_TABLE(i2c, da217_i2c_id);
-
 static struct i2c_driver da217_driver = {
     .driver = {
-        .name = "da217",
-        .acpi_match_table = da217_acpi_match,
+        .name           = "da217",
         .of_match_table = da217_of_match,
-        .pm = &da217_pm_ops,
+        .pm             = &da217_pm_ops,
     },
     .probe      = da217_probe,
-    .id_table   = da217_i2c_id,
+    .remove     = da217_remove,
+    .id_table   = da217_ids,
 };
 module_i2c_driver(da217_driver);
 
 MODULE_AUTHOR("ZeroDreamCat <neko@0w0.cafe>");
-MODULE_DESCRIPTION("MiraMEMS DA217 3-Axis Accelerometer driver");
+MODULE_DESCRIPTION("DA217 3-Axis Accelerometer Input Driver");
 MODULE_LICENSE("GPL v2");
