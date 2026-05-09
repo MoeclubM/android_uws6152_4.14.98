@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * DA217 3-Axis Accelerometer Input Driver
- * SoraNeko fells gravity
+ * SoraNeko fells gravity!
  *
- * Reports acceleration via Linux input subsystem (EV_ABS) to match
- * android.hardware.sensors@1.0-service interface.
+ * Uses delayed workqueue for periodic polling (I2C reads must sleep).
+ * Reports EV_ABS events for android.hardware.sensors@1.0.
  */
 
 #include <linux/module.h>
@@ -12,29 +12,28 @@
 #include <linux/input.h>
 #include <linux/of.h>
 #include <linux/delay.h>
-#include <linux/timer.h>
+#include <linux/workqueue.h>
 #include <linux/jiffies.h>
 #include <linux/pm.h>
 
 #define DA217_REG_SPI_CFG      0x00
 #define DA217_REG_CHIP_ID      0x01
-#define DA217_REG_ACC_X_LSB    0x02  /* Start of 6-byte XYZ data block */
+#define DA217_REG_ACC_X_LSB    0x02
 #define DA217_REG_MODE_BW      0x11
 
 #define DA217_CHIP_ID          0x13
-#define DA217_MODE_ENABLE      0x1E   /* Normal mode, 500Hz BW, no autosleep */
+#define DA217_MODE_ENABLE      0x1E   /* Normal mode, BW=500Hz */
 #define DA217_MODE_DISABLE     0x9E   /* Suspend mode */
 #define DA217_SOFT_RESET_BITS  ((1 << 2) | (1 << 5))
 
-#define DA217_POLL_INTERVAL    10     /* ms -> 100Hz ODR */
+#define DA217_POLL_INTERVAL    10     /* ms */
 
 struct da217_data {
     struct i2c_client *client;
     struct input_dev *input;
-    struct timer_list timer;
+    struct delayed_work work;
 };
 
-/* Soft reset (verified working in I2C mode) */
 static int da217_soft_reset(struct i2c_client *client)
 {
     int ret;
@@ -51,37 +50,41 @@ static int da217_soft_reset(struct i2c_client *client)
     return 0;
 }
 
-/* Enable/disable measurements */
 static int da217_enable(struct i2c_client *client, bool enable)
 {
     u8 data = enable ? DA217_MODE_ENABLE : DA217_MODE_DISABLE;
     return i2c_smbus_write_byte_data(client, DA217_REG_MODE_BW, data);
 }
 
-/* Read 6 bytes (X_LSB..Z_MSB) via I2C burst, parse 14-bit left-justified data */
 static int da217_read_xyz(struct i2c_client *client, s16 *x, s16 *y, s16 *z)
 {
-    u8 buf[6];
     int ret;
 
-    ret = i2c_smbus_read_i2c_block_data(client, DA217_REG_ACC_X_LSB, 6, buf);
-    if (ret != 6) {
-        dev_err(&client->dev, "XYZ read error: %d\n", ret);
-        return (ret < 0) ? ret : -EIO;
-    }
+    ret = i2c_smbus_read_word_data(client, DA217_REG_ACC_X_LSB);
+    if (ret < 0)
+        goto read_error;
+    *x = (s16)ret >> 2;
 
-    /* 14-bit left-justified: LSB low 2 bits are unused, MSB carries D[13:6] */
-    *x = (s16)(((buf[1] << 8) | (buf[0] & 0xFC))) >> 2;
-    *y = (s16)(((buf[3] << 8) | (buf[2] & 0xFC))) >> 2;
-    *z = (s16)(((buf[5] << 8) | (buf[4] & 0xFC))) >> 2;
+    ret = i2c_smbus_read_word_data(client, DA217_REG_ACC_X_LSB + 2);
+    if (ret < 0)
+        goto read_error;
+    *y = (s16)ret >> 2;
+
+    ret = i2c_smbus_read_word_data(client, DA217_REG_ACC_X_LSB + 4);
+    if (ret < 0)
+        goto read_error;
+    *z = (s16)ret >> 2;
 
     return 0;
+
+read_error:
+    dev_err(&client->dev, "XYZ read error: %d\n", ret);
+    return ret;
 }
 
-/* Timer callback: poll sensor and report to input subsystem */
-static void da217_timer_callback(unsigned long ptr)
+static void da217_work_handler(struct work_struct *work)
 {
-    struct da217_data *data = (struct da217_data *)ptr;
+    struct da217_data *data = container_of(work, struct da217_data, work.work);
     s16 x, y, z;
 
     if (da217_read_xyz(data->client, &x, &y, &z) == 0) {
@@ -91,7 +94,7 @@ static void da217_timer_callback(unsigned long ptr)
         input_sync(data->input);
     }
 
-    mod_timer(&data->timer, jiffies + msecs_to_jiffies(DA217_POLL_INTERVAL));
+    schedule_delayed_work(&data->work, msecs_to_jiffies(DA217_POLL_INTERVAL));
 }
 
 static int da217_probe(struct i2c_client *client,
@@ -101,7 +104,6 @@ static int da217_probe(struct i2c_client *client,
     struct input_dev *input;
     int ret;
 
-    /* Verify chip ID */
     ret = i2c_smbus_read_byte_data(client, DA217_REG_CHIP_ID);
     if (ret != DA217_CHIP_ID) {
         dev_err(&client->dev, "Invalid chip ID: 0x%02x\n", ret);
@@ -119,7 +121,6 @@ static int da217_probe(struct i2c_client *client,
     data->client = client;
     data->input = input;
 
-    /* Soft reset and enable */
     ret = da217_soft_reset(client);
     if (ret)
         return ret;
@@ -128,8 +129,7 @@ static int da217_probe(struct i2c_client *client,
     if (ret)
         return ret;
 
-    /* Configure input device */
-    input->name = "da217";
+    input->name = "accelerometer";
     input->id.bustype = BUS_I2C;
     input->dev.parent = &client->dev;
 
@@ -144,9 +144,8 @@ static int da217_probe(struct i2c_client *client,
         return ret;
     }
 
-    /* Set up polling timer (4.14 kernel compatible) */
-    setup_timer(&data->timer, da217_timer_callback, (unsigned long)data);
-    mod_timer(&data->timer, jiffies + msecs_to_jiffies(DA217_POLL_INTERVAL));
+    INIT_DELAYED_WORK(&data->work, da217_work_handler);
+    schedule_delayed_work(&data->work, msecs_to_jiffies(DA217_POLL_INTERVAL));
 
     i2c_set_clientdata(client, data);
     dev_info(&client->dev, "DA217 accelerometer probed successfully\n");
@@ -157,18 +156,17 @@ static int da217_remove(struct i2c_client *client)
 {
     struct da217_data *data = i2c_get_clientdata(client);
 
-    del_timer_sync(&data->timer);
+    cancel_delayed_work_sync(&data->work);
     da217_enable(client, false);
     return 0;
 }
 
-/* Power management */
 static int da217_suspend(struct device *dev)
 {
     struct i2c_client *client = to_i2c_client(dev);
     struct da217_data *data = i2c_get_clientdata(client);
 
-    del_timer_sync(&data->timer);
+    cancel_delayed_work_sync(&data->work);
     da217_enable(client, false);
     return 0;
 }
@@ -183,13 +181,12 @@ static int da217_resume(struct device *dev)
     if (ret)
         return ret;
 
-    mod_timer(&data->timer, jiffies + msecs_to_jiffies(DA217_POLL_INTERVAL));
+    schedule_delayed_work(&data->work, msecs_to_jiffies(DA217_POLL_INTERVAL));
     return 0;
 }
 
 static SIMPLE_DEV_PM_OPS(da217_pm_ops, da217_suspend, da217_resume);
 
-/* Device tree matching: only "da,da217" */
 static const struct of_device_id da217_of_match[] = {
     { .compatible = "da,da217", },
     { }
@@ -204,7 +201,7 @@ static struct i2c_driver da217_driver = {
     },
     .probe      = da217_probe,
     .remove     = da217_remove,
-    .id_table   = NULL,   /* No I2C device ID table needed */
+    .id_table   = NULL,
 };
 module_i2c_driver(da217_driver);
 
