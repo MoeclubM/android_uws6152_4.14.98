@@ -2,4 +2,4 @@
 ccflags-y += -DDEBUG
 
 obj-m := sprdbt_tty.o
-sprdbt_tty-y := $(patsubst $(src)/%.c,%.o,$(wildcard $(src)/*.c $(src)/alignment/*.c))
+sprdbt_tty-y := dump.o lpm.o rfkill.o tty.o alignment/sitm.o

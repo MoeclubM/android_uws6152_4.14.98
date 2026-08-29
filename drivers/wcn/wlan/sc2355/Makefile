@@ -16,4 +16,4 @@ ccflags-y += -DSPLIT_STACK
 ccflags-y += -Wno-packed-bitfield-compat
 
 obj-m := sprdwl_ng.o
-sprdwl_ng-y := $(patsubst $(src)/%.c,%.o,$(shell find $(src) -name "*.c"))
+sprdwl_ng-y := api_version.o cfg80211.o cmdevt.o core_sc2355.o debug.o defrag.o ibss.o if_sc2355.o main.o mm.o msg.o nan.o npi.o qos.o reorder.o rf_marlin3.o rnd_mac_addr.o rtt.o rx_msg_sc2355.o softap_hook.o tcp_ack.o tracer.o tx_msg_sc2355.o txrx.o vendor.o work.o
