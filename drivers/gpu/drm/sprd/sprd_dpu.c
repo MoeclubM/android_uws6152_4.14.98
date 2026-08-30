@@ -28,9 +28,6 @@
 #include "sprd_gem.h"
 #include "sysfs/sysfs_display.h"
 
-extern int sprd_mcu_poweron_cammot(void);
-extern int sprd_mcu_poweroff_cammot(void);
-
 struct sprd_plane {
 	struct drm_plane plane;
 	struct drm_property *alpha_property;
@@ -41,6 +38,7 @@ struct sprd_plane {
 	struct drm_property *y2r_coef_property;
 	struct drm_property *pallete_en_property;
 	struct drm_property *pallete_color_property;
+	struct drm_property *secure_en_property;
 	u32 index;
 };
 
@@ -54,14 +52,30 @@ struct sprd_plane_state {
 	u32 y2r_coef;
 	u32 pallete_en;
 	u32 pallete_color;
+	u32 secure_en;
 };
 
 LIST_HEAD(dpu_core_head);
 LIST_HEAD(dpu_clk_head);
 LIST_HEAD(dpu_glb_head);
+bool dynamic_framerate_mode;
 
+bool calibration_mode;
+static unsigned long frame_count;
+module_param(frame_count, ulong, 0444);
+bool vrr_mode; /* Variable Refresh Rate mode */
 static int sprd_dpu_init(struct sprd_dpu *dpu);
 static int sprd_dpu_uninit(struct sprd_dpu *dpu);
+
+static int boot_mode_check(char *str)
+{
+	if (str != NULL && !strncmp(str, "cali", strlen("cali")))
+		calibration_mode = true;
+	else
+		calibration_mode = false;
+	return 0;
+}
+__setup("androidboot.mode=", boot_mode_check);
 
 static inline struct sprd_plane *to_sprd_plane(struct drm_plane *plane)
 {
@@ -104,7 +118,35 @@ static void sprd_dpu_iommu_unmap(struct device *dev,
 	iommu_data.iova_addr = sprd_gem->dma_addr;
 	iommu_data.ch_type = SPRD_IOMMU_FM_CH_RW;
 
-	sprd_iommu_unmap(dev, &iommu_data);
+	if (sprd_iommu_unmap(dev, &iommu_data))
+		DRM_ERROR("failed to unmap iommu address\n");
+}
+
+static int of_get_logo_memory_info(struct sprd_dpu *dpu,
+	struct device_node *np)
+{
+	struct device_node *node;
+	struct resource r;
+	int ret;
+	struct dpu_context *ctx = &dpu->ctx;
+
+	node = of_parse_phandle(np, "sprd,logo-memory", 0);
+	if (!node) {
+		DRM_INFO("no sprd,logo-memory specified\n");
+		return 0;
+	}
+
+	ret = of_address_to_resource(node, 0, &r);
+	of_node_put(node);
+	if (ret) {
+		DRM_ERROR("invalid logo reserved memory node!\n");
+		return -EINVAL;
+	}
+
+	ctx->logo_addr = r.start;
+	ctx->logo_size = resource_size(&r);
+
+	return 0;
 }
 
 static int sprd_plane_prepare_fb(struct drm_plane *plane,
@@ -147,6 +189,7 @@ static void sprd_plane_cleanup_fb(struct drm_plane *plane,
 	struct sprd_gem_obj *sprd_gem;
 	struct sprd_dpu *dpu;
 	int i;
+	static atomic_t logo2animation = { -1 };
 
 	if ((curr_state->fb == old_state->fb) || !old_state->fb)
 		return;
@@ -164,6 +207,15 @@ static void sprd_plane_cleanup_fb(struct drm_plane *plane,
 		sprd_gem = to_sprd_gem_obj(obj);
 		if (sprd_gem->need_iommu)
 			sprd_dpu_iommu_unmap(&dpu->dev, sprd_gem);
+	}
+
+	if (unlikely(atomic_inc_not_zero(&logo2animation)) &&
+		dpu->ctx.logo_addr) {
+		DRM_INFO("free logo memory addr:0x%lx size:0x%lx\n",
+			dpu->ctx.logo_addr, dpu->ctx.logo_size);
+		free_reserved_area(phys_to_virt(dpu->ctx.logo_addr),
+			phys_to_virt(dpu->ctx.logo_addr + dpu->ctx.logo_size),
+			-1, "logo");
 	}
 }
 
@@ -203,6 +255,7 @@ static void sprd_plane_atomic_update(struct drm_plane *plane,
 		layer->blending = s->blend_mode;
 		layer->pallete_en = s->pallete_en;
 		layer->pallete_color = s->pallete_color;
+		layer->secure_en = s->secure_en;
 		dpu->pending_planes++;
 		DRM_DEBUG("%s() pallete_color = %u, index = %u\n",
 			__func__, layer->pallete_color, layer->index);
@@ -230,6 +283,7 @@ static void sprd_plane_atomic_update(struct drm_plane *plane,
 	layer->y2r_coef = s->y2r_coef;
 	layer->pallete_en = s->pallete_en;
 	layer->pallete_color = s->pallete_color;
+	layer->secure_en = s->secure_en;
 
 	DRM_DEBUG("%s() alpha = %u, blending = %u, rotation = %u, y2r_coef = %u\n",
 		  __func__, layer->alpha, layer->blending, layer->rotation, s->y2r_coef);
@@ -355,6 +409,8 @@ static int sprd_plane_atomic_set_property(struct drm_plane *plane,
 		s->pallete_en = val;
 	else if (property == p->pallete_color_property)
 		s->pallete_color = val;
+	else if (property == p->secure_en_property)
+		s->secure_en = val;
 	else {
 		DRM_ERROR("property %s is invalid\n", property->name);
 		return -EINVAL;
@@ -389,6 +445,8 @@ static int sprd_plane_atomic_get_property(struct drm_plane *plane,
 		*val = s->pallete_en;
 	else if (property == p->pallete_color_property)
 		*val = s->pallete_color;
+	else if (property == p->secure_en_property)
+		*val = s->secure_en;
 	else {
 		DRM_ERROR("property %s is invalid\n", property->name);
 		return -EINVAL;
@@ -479,6 +537,14 @@ static int sprd_plane_create_properties(struct sprd_plane *p, int index)
 	drm_object_attach_property(&p->plane.base, prop, 0);
 	p->pallete_color_property = prop;
 
+	/* create secure enable property */
+	prop = drm_property_create_range(p->plane.dev, 0,
+			"secure enable", 0, UINT_MAX);
+	if (!prop)
+		return -ENOMEM;
+	drm_object_attach_property(&p->plane.base, prop, 0);
+	p->secure_en_property = prop;
+
 	return 0;
 }
 
@@ -550,8 +616,19 @@ static struct drm_plane *sprd_plane_init(struct drm_device *drm,
 static void sprd_crtc_mode_set_nofb(struct drm_crtc *crtc)
 {
 	struct sprd_dpu *dpu = crtc_to_dpu(crtc);
+	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
 
 	DRM_INFO("%s() set mode: %s\n", __func__, dpu->mode->name);
+
+	/*
+	 * TODO:
+	 * Currently, low simulator resolution only support
+	 * DPI mode, support for EDPI in the future.
+	 */
+	if (mode->type & DRM_MODE_TYPE_BUILTIN) {
+		dpu->ctx.if_type = SPRD_DISPC_IF_DPI;
+		return;
+	}
 
 	if ((dpu->mode->hdisplay == dpu->mode->htotal) ||
 	    (dpu->mode->vdisplay == dpu->mode->vtotal))
@@ -563,8 +640,7 @@ static void sprd_crtc_mode_set_nofb(struct drm_crtc *crtc)
 		if (crtc->state->mode_changed) {
 			struct drm_mode_modeinfo umode;
 
-			drm_mode_convert_to_umode(&umode,
-				&crtc->state->adjusted_mode);
+			drm_mode_convert_to_umode(&umode, mode);
 			dpu->core->modeset(&dpu->ctx, &umode);
 		}
 	}
@@ -585,18 +661,27 @@ static enum drm_mode_status sprd_crtc_mode_valid(struct drm_crtc *crtc,
 		drm_display_mode_to_videomode(dpu->mode, &dpu->ctx.vm);
 	}
 
+	if (mode->type & DRM_MODE_TYPE_BUILTIN)
+		dpu->mode = (struct drm_display_mode *)mode;
+
 	return MODE_OK;
+}
+
+void sprd_dpu_resume(struct sprd_dpu *dpu)
+{
+	sprd_dpu_init(dpu);
+	enable_irq(dpu->ctx.irq);
+	sprd_iommu_restore(&dpu->dev);
+	DRM_INFO("dpu resume OK\n");
 }
 
 static void sprd_crtc_atomic_enable(struct drm_crtc *crtc,
 				   struct drm_crtc_state *old_state)
 {
 	struct sprd_dpu *dpu = crtc_to_dpu(crtc);
+	static bool is_enabled = true;
 
 	DRM_INFO("%s()\n", __func__);
-
-	/* turn on mcu power */
-	sprd_mcu_poweron_cammot();
 
 	/*
 	 * add if condition to avoid resume dpu for SR feature.
@@ -604,13 +689,20 @@ static void sprd_crtc_atomic_enable(struct drm_crtc *crtc,
 	if (crtc->state->mode_changed && !crtc->state->active_changed)
 		return;
 
-	pm_runtime_get_sync(dpu->dev.parent);
+	if (is_enabled) {
+		/* workaround:
+		 * dpu r6p0 need resume after dsi resume on div6 scences
+		 * for dsi core and dpi clk depends on dphy clk
+		 */
+		if (!strcmp(dpu->ctx.version, "dpu-r6p0"))
+			sprd_dpu_resume(dpu);
+		is_enabled = false;
+	}
+	else
+		pm_runtime_get_sync(dpu->dev.parent);
 
-	sprd_dpu_init(dpu);
-
-	enable_irq(dpu->ctx.irq);
-
-	sprd_iommu_restore(&dpu->dev);
+	if (strcmp(dpu->ctx.version, "dpu-r6p0"))
+		sprd_dpu_resume(dpu);
 }
 
 static void sprd_crtc_wait_last_commit_complete(struct drm_crtc *crtc)
@@ -647,9 +739,6 @@ static void sprd_crtc_atomic_disable(struct drm_crtc *crtc,
 	struct drm_device *drm = dpu->crtc.dev;
 
 	DRM_INFO("%s()\n", __func__);
-
-	/* turn off mcu power */
-	sprd_mcu_poweroff_cammot();	
 
 	/* add if condition to avoid suspend dpu for SR feature */
 	if (crtc->state->mode_changed && !crtc->state->active_changed)
@@ -703,8 +792,10 @@ static void sprd_crtc_atomic_flush(struct drm_crtc *crtc,
 	DRM_DEBUG("%s()\n", __func__);
 
 	if (dpu->core && dpu->core->flip &&
-	    dpu->pending_planes && !dpu->ctx.disable_flip)
+	    dpu->pending_planes && !dpu->ctx.disable_flip) {
 		dpu->core->flip(&dpu->ctx, dpu->layers, dpu->pending_planes);
+		frame_count++;
+	}
 
 	up(&dpu->ctx.refresh_lock);
 
@@ -764,6 +855,16 @@ static int sprd_crtc_create_properties(struct drm_crtc *crtc)
 		return -ENOMEM;
 	}
 	drm_object_attach_property(&crtc->base, prop, blob->base.id);
+
+	/* create corner size property */
+	prop = drm_property_create(drm,
+		DRM_MODE_PROP_IMMUTABLE | DRM_MODE_PROP_RANGE,
+		"corner size", 0);
+	if (!prop) {
+		DRM_ERROR("drm_property_create corner size failed\n");
+		return -ENOMEM;
+	}
+	drm_object_attach_property(&crtc->base, prop, dpu->ctx.corner_size);
 
 	return 0;
 }
@@ -920,8 +1021,9 @@ static int sprd_dpu_uninit(struct sprd_dpu *dpu)
 	struct dpu_context *ctx = &dpu->ctx;
 
 	down(&ctx->refresh_lock);
-
+	down(&ctx->cabc_lock);
 	if (!dpu->ctx.is_inited) {
+		up(&ctx->cabc_lock);
 		up(&ctx->refresh_lock);
 		return 0;
 	}
@@ -937,6 +1039,7 @@ static int sprd_dpu_uninit(struct sprd_dpu *dpu)
 
 	ctx->is_inited = false;
 
+	up(&ctx->cabc_lock);
 	up(&ctx->refresh_lock);
 
 	return 0;
@@ -950,6 +1053,15 @@ static irqreturn_t sprd_dpu_isr(int irq, void *data)
 
 	if (dpu->core && dpu->core->isr)
 		int_mask = dpu->core->isr(ctx);
+
+	if (int_mask & DISPC_INT_TE_MASK) {
+		if (ctx->te_check_en) {
+			ctx->evt_te = true;
+			wake_up_interruptible_all(&ctx->te_wq);
+		}
+		if (ctx->if_type == SPRD_DISPC_IF_EDPI)
+			drm_crtc_handle_vblank(&dpu->crtc);
+	}
 
 	if (int_mask & DISPC_INT_ERR_MASK)
 		DRM_WARN("Warning: dpu underflow!\n");
@@ -985,6 +1097,27 @@ static int sprd_dpu_irq_request(struct sprd_dpu *dpu)
 	return 0;
 }
 
+static struct sprd_dsi *sprd_dpu_dsi_attach(struct sprd_dpu *dpu)
+{
+	struct device *dev;
+	struct sprd_dsi *dsi;
+
+	DRM_INFO("dpu attach dsi\n");
+	dev = sprd_disp_pipe_get_output(&dpu->dev);
+	if (!dev) {
+		DRM_ERROR("dpu pipe get output failed\n");
+		return NULL;
+	}
+
+	dsi = dev_get_drvdata(dev);
+	if (!dsi) {
+		DRM_ERROR("dpu attach dsi failed\n");
+		return NULL;
+	}
+
+	return dsi;
+}
+
 static int sprd_dpu_bind(struct device *dev, struct device *master, void *data)
 {
 	struct drm_device *drm = data;
@@ -1008,6 +1141,7 @@ static int sprd_dpu_bind(struct device *dev, struct device *master, void *data)
 	sprd_dpu_irq_request(dpu);
 
 	sprd->dpu_dev = dev;
+	dpu->dsi = sprd_dpu_dsi_attach(dpu);
 
 	return 0;
 }
@@ -1078,8 +1212,11 @@ static int sprd_dpu_context_init(struct sprd_dpu *dpu,
 		return -EFAULT;
 	}
 
-	sema_init(&ctx->refresh_lock, 1);
+	of_get_logo_memory_info(dpu, np);
 
+	sema_init(&ctx->refresh_lock, 1);
+	sema_init(&ctx->cabc_lock, 1);
+	mutex_init(&ctx->vrr_lock);
 	return 0;
 }
 
@@ -1088,7 +1225,12 @@ static int sprd_dpu_probe(struct platform_device *pdev)
 	struct device_node *np = pdev->dev.of_node;
 	struct sprd_dpu *dpu;
 	const char *str;
-	int ret;
+	int ret; //val;
+
+	if (calibration_mode) {
+		DRM_WARN("Calibration Mode! Don't register sprd dpu driver\n");
+		return -ENODEV;
+	}
 
 	dpu = devm_kzalloc(&pdev->dev, sizeof(*dpu), GFP_KERNEL);
 	if (!dpu)
@@ -1106,6 +1248,9 @@ static int sprd_dpu_probe(struct platform_device *pdev)
 	} else
 		DRM_WARN("sprd,soc was not found\n");
 
+	//if (!of_property_read_u32(np, "sprd,dpi-clk-div", &val))
+	//	dpu->ctx.dpi_clk_div = val;
+
 	ret = sprd_dpu_context_init(dpu, np);
 	if (ret)
 		return ret;
@@ -1114,6 +1259,8 @@ static int sprd_dpu_probe(struct platform_device *pdev)
 	sprd_dpu_sysfs_init(&dpu->dev);
 	platform_set_drvdata(pdev, dpu);
 
+	pm_runtime_set_active(&pdev->dev);
+	pm_runtime_get_noresume(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
 
 	return component_add(&pdev->dev, &dpu_component_ops);

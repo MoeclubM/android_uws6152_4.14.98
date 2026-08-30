@@ -21,7 +21,6 @@
 #include <linux/backlight.h>
 #include <linux/of.h>
 #include <linux/regulator/consumer.h>
-#include <linux/types.h>
 #include <linux/workqueue.h>
 
 enum {
@@ -75,7 +74,7 @@ struct panel_info {
 	struct device_node *of_node;
 	struct drm_display_mode mode;
 	struct drm_display_mode *buildin_modes;
-	int num_biuldin_modes;
+	int num_buildin_modes;
 	struct gpio_desc *avdd_gpio;
 	struct gpio_desc *avee_gpio;
 	struct gpio_desc *reset_gpio;
@@ -110,7 +109,7 @@ struct sprd_panel {
 	bool is_enabled;
 };
 
-struct sprd_backlight {
+struct sprd_oled {
 	struct backlight_device *bdev;
 	struct sprd_panel *panel;
 	struct dsi_cmd_desc *cmds[255];

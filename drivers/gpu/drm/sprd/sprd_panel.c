@@ -1,5 +1,5 @@
 /*
- * ICN3312 Panel driver from sprd simple panel by SoraNeko
+ * Copyright (C) 2018 Spreadtrum Communications Inc.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -21,56 +21,12 @@
 #include <video/of_display_timing.h>
 #include <video/videomode.h>
 
+#include "sprd_dpu.h"
 #include "sprd_panel.h"
 #include "dsi/sprd_dsi_api.h"
 #include "sysfs/sysfs_display.h"
 
 #define SPRD_MIPI_DSI_FMT_DSC 0xff
-
-/* Backlight mode definitions */
-#define BACKLIGHT_MODE_BYPASS		0
-#define BACKLIGHT_MODE_DIRECT		1
-#define BACKLIGHT_MODE_DUTY_DET_PWM	2
-#define BACKLIGHT_MODE_DUTY_DET_ANALOG	3
-#define BACKLIGHT_MODE_DUTY_DET_MIXED	4
-#define BACKLIGHT_MODE_EXT_R_SINK	5
-#define BACKLIGHT_MODE_MAX		6
-
-/* Backlight control mode definitions */
-#define BACKLIGHT_CTRL_IDAC		0
-#define BACKLIGHT_CTRL_PWM		1
-#define BACKLIGHT_CTRL_DEFAULT		BACKLIGHT_CTRL_PWM
-
-/* Default PWM frequency to 20kHz and Max 33kHz */
-#define BACKLIGHT_FREQ_DEFAULT		0	/* 20kHz */
-#define BACKLIGHT_FREQ_MIN		20480
-#define BACKLIGHT_FREQ_MAX		34816
-
-/* PWM output duty range 0 ~ 256 */
-#define BACKLIGHT_PWM_DUTY_MAX		255	/* 100% */
-
-/* IDAC, Max = 40960 uA = 160uA * 255 steps */
-#define BACKLIGHT_IDAC_MAX		40960
-#define BACKLIGHT_IDAC_DEFAULT		0
-
-/* This is for Direct mode/GPIO mode to set PWM default */
-#define BACKLIGHT_PWM_DEFAULT		1000
-
-#define BACKLIGHT_VDAC_MAX		1600000	/* uA */
-#define BACKLIGHT_VDAC_MIN		20000	/* uA */
-#define BACKLIGHT_VDAC_DEFAULT		0x95
-#define BACKLIGHT_VDAC_SEL_DEFAULT	0x0
-
-#define BACKLIGHT_PWM_DUTY_THRESH_MAX	255
-#define BACKLIGHT_PWM_DUTY_THRESH_DEFAULT 50
-
-#define BACKLIGHT_PWM_BRIGHTNESS_MAX	0xFFFF
-#define BACKLIGHT_PWM_BRIGHTNESS_DEFAULT 100
-
-#define BACKLIGHT_MIN_PWM_FREQ		25	/* kHz */
-#define BACKLIGHT_IN_PWM_FREQ_STD	30	/* kHz */
-#define BACKLIGHT_MAX_PWM_FREQ		35	/* kHz */
-
 static DEFINE_MUTEX(panel_lock);
 
 const char *lcd_name;
@@ -91,22 +47,17 @@ static inline struct sprd_panel *to_sprd_panel(struct drm_panel *panel)
 static int sprd_panel_send_cmds(struct mipi_dsi_device *dsi,
 				const void *data, int size)
 {
-	struct sprd_panel *panel = mipi_dsi_get_drvdata(dsi);
+	struct sprd_panel *panel;
 	const struct dsi_cmd_desc *cmds = data;
 	u16 len;
 
 	if ((cmds == NULL) || (dsi == NULL))
 		return -EINVAL;
 
+	panel = mipi_dsi_get_drvdata(dsi);
+
 	while (size > 0) {
 		len = (cmds->wc_h << 8) | cmds->wc_l;
-
-		/* 健壮性检查：确保长度合法，防止越界 */
-		if (len + 4 > size) {
-			DRM_ERROR("Invalid cmd length: len=%u, remaining size=%d\n",
-				  len, size);
-			return -EINVAL;
-		}
 
 		if (panel->info.use_dcs)
 			mipi_dsi_dcs_write_buffer(dsi, cmds->payload, len);
@@ -135,6 +86,11 @@ static int sprd_panel_unprepare(struct drm_panel *p)
 		mdelay(5);
 	}
 
+	if (panel->info.avdd_gpio) {
+		gpiod_direction_output(panel->info.avdd_gpio, 0);
+		mdelay(5);
+	}
+
 	if (panel->info.reset_gpio) {
 		items = panel->info.rst_off_seq.items;
 		timing = panel->info.rst_off_seq.timing;
@@ -145,16 +101,7 @@ static int sprd_panel_unprepare(struct drm_panel *p)
 		}
 	}
 
-	if (panel->info.avdd_gpio) {
-		mdelay(50);
-		gpiod_direction_output(panel->info.avdd_gpio, 0);
-		mdelay(5);
-	}
-
-	if (panel->supply)
-		regulator_disable(panel->supply);
-
-	DRM_INFO("[PANEL] unprepare done\n");
+	regulator_disable(panel->supply);
 
 	return 0;
 }
@@ -167,12 +114,13 @@ static int sprd_panel_prepare(struct drm_panel *p)
 
 	DRM_INFO("%s()\n", __func__);
 
-	if (panel->supply) {
-		ret = regulator_enable(panel->supply);
-		if (ret < 0) {
-			DRM_ERROR("enable lcd regulator failed\n");
-			return ret;
-		}
+	ret = regulator_enable(panel->supply);
+	if (ret < 0)
+		DRM_ERROR("enable lcd regulator failed\n");
+
+	if (panel->info.avdd_gpio) {
+		gpiod_direction_output(panel->info.avdd_gpio, 1);
+		mdelay(5);
 	}
 
 	if (panel->info.avee_gpio) {
@@ -190,34 +138,33 @@ static int sprd_panel_prepare(struct drm_panel *p)
 		}
 	}
 
-	if (panel->info.avdd_gpio) {
-		mdelay(50);
-		gpiod_direction_output(panel->info.avdd_gpio, 1);
-		mdelay(5);
-	}
-
-	DRM_INFO("[PANEL] prepare done\n");
 	return 0;
 }
 
 static int sprd_panel_disable(struct drm_panel *p)
 {
 	struct sprd_panel *panel = to_sprd_panel(p);
-	struct backlight_device *bl = NULL;
+
+	DRM_INFO("%s()\n", __func__);
 
 	mutex_lock(&panel_lock);
-	/* 提前标记并释放锁，避免死锁 */
+	/*
+	 * FIXME:
+	 * The cancel work should be executed before DPU stop,
+	 * otherwise the esd check will be failed if the DPU
+	 * stopped in video mode and the DSI has not change to
+	 * CMD mode yet. Since there is no VBLANK timing for
+	 * LP cmd transmission.
+	 */
 	if (panel->esd_work_pending) {
-		panel->esd_work_pending = false;
-		mutex_unlock(&panel_lock);
 		cancel_delayed_work_sync(&panel->esd_work);
-		mutex_lock(&panel_lock);
+		panel->esd_work_pending = false;
 	}
 
 	if (panel->backlight) {
 		panel->backlight->props.power = FB_BLANK_POWERDOWN;
 		panel->backlight->props.state |= BL_CORE_FBBLANK;
-		bl = panel->backlight;
+		backlight_update_status(panel->backlight);
 	}
 
 	sprd_panel_send_cmds(panel->slave,
@@ -227,27 +174,24 @@ static int sprd_panel_disable(struct drm_panel *p)
 	panel->is_enabled = false;
 	mutex_unlock(&panel_lock);
 
-	if (bl)
-		backlight_update_status(bl);
-
 	return 0;
 }
 
 static int sprd_panel_enable(struct drm_panel *p)
 {
 	struct sprd_panel *panel = to_sprd_panel(p);
-	struct backlight_device *bl = NULL;
+
+	DRM_INFO("%s()\n", __func__);
 
 	mutex_lock(&panel_lock);
 	sprd_panel_send_cmds(panel->slave,
 			     panel->info.cmds[CMD_CODE_INIT],
 			     panel->info.cmds_len[CMD_CODE_INIT]);
 
-	/* 先记录背光指针，但不要在锁内调 backlight_update_status */
 	if (panel->backlight) {
 		panel->backlight->props.power = FB_BLANK_UNBLANK;
 		panel->backlight->props.state &= ~BL_CORE_FBBLANK;
-		bl = panel->backlight;       // 锁外调用
+		backlight_update_status(panel->backlight);
 	}
 
 	if (panel->info.esd_check_en) {
@@ -258,9 +202,6 @@ static int sprd_panel_enable(struct drm_panel *p)
 
 	panel->is_enabled = true;
 	mutex_unlock(&panel_lock);
-
-	if (bl)
-		backlight_update_status(bl);
 
 	return 0;
 }
@@ -283,7 +224,7 @@ static int sprd_panel_get_modes(struct drm_panel *p)
 	drm_mode_probed_add(p->connector, mode);
 	mode_count++;
 
-	for (i = 1; i < panel->info.num_biuldin_modes; i++) {
+	for (i = 1; i < panel->info.num_buildin_modes; i++)	{
 		mode = drm_mode_duplicate(p->drm,
 			&(panel->info.buildin_modes[i]));
 		if (!mode) {
@@ -306,12 +247,9 @@ static int sprd_panel_get_modes(struct drm_panel *p)
 		vm.pixelclock = surface_width * surface_height * 60;
 
 		mode = drm_mode_create(p->drm);
-		if (!mode) {
-            DRM_ERROR("failed to create mode for surface\n");
-            return mode_count;
-        }
-        
-		mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
+
+		mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_BUILTIN |
+			DRM_MODE_TYPE_CRTC_C;
 		mode->vrefresh = 60;
 		drm_display_mode_from_videomode(&vm, mode);
 		drm_mode_probed_add(p->connector, mode);
@@ -336,98 +274,147 @@ static int sprd_panel_esd_check(struct sprd_panel *panel)
 {
 	struct panel_info *info = &panel->info;
 	u8 read_val = 0;
-	int ret;
 
-    mipi_dsi_set_maximum_return_packet_size(panel->slave, 1);
-	ret = mipi_dsi_dcs_read(panel->slave, info->esd_check_reg,
-				&read_val, 1);
-	if (ret < 0) {
-		DRM_ERROR("esd check read failed: %d\n", ret);
-		return ret;
-	}
+	/* FIXME: we should enable HS cmd tx here */
+	mipi_dsi_set_maximum_return_packet_size(panel->slave, 1);
+	mipi_dsi_dcs_read(panel->slave, info->esd_check_reg,
+			  &read_val, 1);
 
-	/* 成功读取至少 1 字节 */
-	if (ret != 1 || read_val != info->esd_check_val) {
-		DRM_ERROR("esd check failed, read value = 0x%02x\n", read_val);
+	/*
+	 * TODO:
+	 * Should we support multi-registers check in the future?
+	 */
+	if (read_val != info->esd_check_val) {
+		DRM_ERROR("esd check failed, read value = 0x%02x\n",
+			  read_val);
 		return -EINVAL;
 	}
 
 	return 0;
 }
 
-static void sprd_panel_esd_work_func(struct work_struct *work)
+static int sprd_panel_te_check(struct sprd_panel *panel)
 {
-    struct sprd_panel *panel = container_of(to_delayed_work(work), struct sprd_panel, esd_work);
-    struct panel_info *info = &panel->info;
-    int ret;
+	static int te_wq_inited;
+	struct sprd_dpu *dpu;
+	int ret;
+	bool irq_occur = false;
 
-    mutex_lock(&panel_lock);
-    if (!panel->is_enabled) {
-        panel->esd_work_pending = false;
-        mutex_unlock(&panel_lock);
-        return;
-    }
+	if (!panel->base.connector ||
+	    !panel->base.connector->encoder ||
+	    !panel->base.connector->encoder->crtc) {
+		return 0;
+	}
 
-    ret = sprd_panel_esd_check(panel);
-    if (ret) {
-        panel->esd_work_pending = false;
-        mutex_unlock(&panel_lock);
+	dpu = container_of(panel->base.connector->encoder->crtc,
+		struct sprd_dpu, crtc);
 
-        /* 通过 panel 自身回调恢复 */
-        sprd_panel_disable(&panel->base);
-        sprd_panel_unprepare(&panel->base);
-        sprd_panel_prepare(&panel->base);
-        sprd_panel_enable(&panel->base);
-    } else {
-        schedule_delayed_work(&panel->esd_work,
-                              msecs_to_jiffies(info->esd_check_period));
-        mutex_unlock(&panel_lock);
-    }
+	if (!te_wq_inited) {
+		init_waitqueue_head(&dpu->ctx.te_wq);
+		te_wq_inited = 1;
+		dpu->ctx.evt_te = false;
+		DRM_INFO("%s init te waitqueue\n", __func__);
+	}
+
+	/* DPU TE irq maybe enabled in kernel */
+	if (!dpu->ctx.is_inited)
+		return 0;
+
+	dpu->ctx.te_check_en = true;
+
+	/* wait for TE interrupt */
+	ret = wait_event_interruptible_timeout(dpu->ctx.te_wq,
+		dpu->ctx.evt_te, msecs_to_jiffies(500));
+	if (!ret) {
+		/* double check TE interrupt through dpu_int_raw register */
+		if (dpu->core && dpu->core->check_raw_int) {
+			down(&dpu->ctx.refresh_lock);
+			if (dpu->ctx.is_inited)
+				irq_occur = dpu->core->check_raw_int(&dpu->ctx,
+					DISPC_INT_TE_MASK);
+			up(&dpu->ctx.refresh_lock);
+			if (!irq_occur) {
+				DRM_ERROR("TE esd timeout.\n");
+				ret = -1;
+			} else
+				DRM_WARN("TE occur, but isr schedule delay\n");
+		} else {
+			DRM_ERROR("TE esd timeout.\n");
+			ret = -1;
+		}
+	}
+
+	dpu->ctx.te_check_en = false;
+	dpu->ctx.evt_te = false;
+
+	return ret < 0 ? ret : 0;
 }
 
-static int sprd_panel_gpio_request(struct device *dev, struct sprd_panel *panel)
+static void sprd_panel_esd_work_func(struct work_struct *work)
 {
-	struct gpio_desc *gpio;
+	struct sprd_panel *panel = container_of(work, struct sprd_panel,
+						esd_work.work);
+	struct panel_info *info = &panel->info;
 	int ret;
 
-	gpio = devm_gpiod_get_optional(dev, "avdd", GPIOD_ASIS);
-	if (IS_ERR(gpio)) {
-		ret = PTR_ERR(gpio);
-		if (ret == -EPROBE_DEFER)
-			return ret;
-		DRM_WARN("Failed to get avdd gpio: %d\n", ret);
-		panel->info.avdd_gpio = NULL;
-	} else {
-		panel->info.avdd_gpio = gpio;
+	if (info->esd_check_mode == ESD_MODE_REG_CHECK)
+		ret = sprd_panel_esd_check(panel);
+	else if (info->esd_check_mode == ESD_MODE_TE_CHECK)
+		ret = sprd_panel_te_check(panel);
+	else {
+		DRM_ERROR("unknown esd check mode:%d\n", info->esd_check_mode);
+		return;
 	}
 
-	gpio = devm_gpiod_get_optional(dev, "avee", GPIOD_ASIS);
-	if (IS_ERR(gpio)) {
-		ret = PTR_ERR(gpio);
-		if (ret == -EPROBE_DEFER)
-			return ret;
-		DRM_WARN("Failed to get avee gpio: %d\n", ret);
-		panel->info.avee_gpio = NULL;
-	} else {
-		panel->info.avee_gpio = gpio;
-	}
+	if (ret && panel->base.connector && panel->base.connector->encoder) {
+		const struct drm_encoder_helper_funcs *funcs;
+		struct drm_encoder *encoder;
 
-	gpio = devm_gpiod_get_optional(dev, "reset", GPIOD_ASIS);
-	if (IS_ERR(gpio)) {
-		ret = PTR_ERR(gpio);
-		if (ret == -EPROBE_DEFER)
-			return ret;
-		DRM_WARN("Failed to get reset gpio: %d\n", ret);
-		panel->info.reset_gpio = NULL;
-	} else {
-		panel->info.reset_gpio = gpio;
-	}
+		encoder = panel->base.connector->encoder;
+		funcs = encoder->helper_private;
+		panel->esd_work_pending = false;
+
+		if (!encoder->crtc || (encoder->crtc->state &&
+		    !encoder->crtc->state->active)) {
+			DRM_INFO("skip esd recovery during panel suspend\n");
+			return;
+		}
+
+		DRM_INFO("====== esd recovery start ========\n");
+		funcs->disable(encoder);
+		funcs->enable(encoder);
+		DRM_INFO("======= esd recovery end =========\n");
+	} else
+		schedule_delayed_work(&panel->esd_work,
+			msecs_to_jiffies(info->esd_check_period));
+}
+
+static int sprd_panel_gpio_request(struct device *dev,
+			struct sprd_panel *panel)
+{
+	panel->info.avdd_gpio = devm_gpiod_get_optional(dev,
+					"avdd", GPIOD_ASIS);
+	if (IS_ERR_OR_NULL(panel->info.avdd_gpio))
+		DRM_WARN("can't get panel avdd gpio: %ld\n",
+				 PTR_ERR(panel->info.avdd_gpio));
+
+	panel->info.avee_gpio = devm_gpiod_get_optional(dev,
+					"avee", GPIOD_ASIS);
+	if (IS_ERR_OR_NULL(panel->info.avee_gpio))
+		DRM_WARN("can't get panel avee gpio: %ld\n",
+				 PTR_ERR(panel->info.avee_gpio));
+
+	panel->info.reset_gpio = devm_gpiod_get_optional(dev,
+					"reset", GPIOD_ASIS);
+	if (IS_ERR_OR_NULL(panel->info.reset_gpio))
+		DRM_WARN("can't get panel reset gpio: %ld\n",
+				 PTR_ERR(panel->info.reset_gpio));
 
 	return 0;
 }
 
-static int of_parse_reset_seq(struct device *dev, struct device_node *np,
-			      struct panel_info *info)
+static int of_parse_reset_seq(struct device_node *np,
+				struct panel_info *info)
 {
 	struct property *prop;
 	int bytes, rc;
@@ -439,13 +426,14 @@ static int of_parse_reset_seq(struct device *dev, struct device_node *np,
 		return -EINVAL;
 	}
 
-	p = devm_kzalloc(dev, bytes, GFP_KERNEL);
+	p = kzalloc(bytes, GFP_KERNEL);
 	if (!p)
 		return -ENOMEM;
 	rc = of_property_read_u32_array(np, "sprd,reset-on-sequence",
 					p, bytes / 4);
 	if (rc) {
 		DRM_ERROR("parse sprd,reset-on-sequence failed\n");
+		kfree(p);
 		return rc;
 	}
 
@@ -458,13 +446,14 @@ static int of_parse_reset_seq(struct device *dev, struct device_node *np,
 		return -EINVAL;
 	}
 
-	p = devm_kzalloc(dev, bytes, GFP_KERNEL);
+	p = kzalloc(bytes, GFP_KERNEL);
 	if (!p)
 		return -ENOMEM;
 	rc = of_property_read_u32_array(np, "sprd,reset-off-sequence",
 					p, bytes / 4);
 	if (rc) {
 		DRM_ERROR("parse sprd,reset-off-sequence failed\n");
+		kfree(p);
 		return rc;
 	}
 
@@ -474,11 +463,12 @@ static int of_parse_reset_seq(struct device *dev, struct device_node *np,
 	return 0;
 }
 
-static int of_get_buildin_modes(struct panel_info *info,
-	struct device_node *lcd_node, struct device *dev)
+static int of_parse_buildin_modes(struct panel_info *info,
+	struct device_node *lcd_node)
 {
 	int i, rc, num_timings;
 	struct device_node *timings_np;
+
 
 	timings_np = of_get_child_by_name(lcd_node, "display-timings");
 	if (!timings_np) {
@@ -491,17 +481,11 @@ static int of_get_buildin_modes(struct panel_info *info,
 	if (num_timings == 0) {
 		/* should never happen, as entry was already found above */
 		DRM_ERROR("%s: no timings specified\n", lcd_node->name);
-		rc = -ENODEV;
 		goto done;
 	}
 
-	info->buildin_modes = devm_kcalloc(dev, num_timings,
-					   sizeof(struct drm_display_mode),
-					   GFP_KERNEL);
-	if (!info->buildin_modes) {
-		rc = -ENOMEM;
-		goto done;
-	}
+	info->buildin_modes = kzalloc(sizeof(struct drm_display_mode) *
+				num_timings, GFP_KERNEL);
 
 	for (i = 0; i < num_timings; i++) {
 		rc = of_get_drm_display_mode(lcd_node,
@@ -515,44 +499,181 @@ static int of_get_buildin_modes(struct panel_info *info,
 		info->buildin_modes[i].height_mm = info->mode.height_mm;
 		info->buildin_modes[i].vrefresh = info->mode.vrefresh;
 	}
-	info->num_biuldin_modes = num_timings;
+	info->num_buildin_modes = num_timings;
 	DRM_INFO("info->num_buildin_modes = %d\n", num_timings);
-	rc = 0;
 	goto done;
 
 entryfail:
-	devm_kfree(dev, info->buildin_modes);
-	info->buildin_modes = NULL;
-	rc = -EINVAL;
+	kfree(info->buildin_modes);
 done:
 	of_node_put(timings_np);
-	return rc;
+
+	return 0;
 }
 
-static int sprd_panel_parse_dt(struct device_node *np, struct sprd_panel *panel,
-			       struct device *dev)
+static int of_parse_oled_cmds(struct sprd_oled *oled,
+		const void *data, int size)
+{
+	const struct dsi_cmd_desc *cmds = data;
+	struct dsi_cmd_desc *p;
+	u16 len;
+	int i, total;
+
+	if (cmds == NULL)
+		return -EINVAL;
+
+	/*
+	 * TODO:
+	 * Currently, we only support the same length cmds
+	 * for oled brightness level. So we take the first
+	 * cmd payload length as all.
+	 */
+	len = (cmds->wc_h << 8) | cmds->wc_l;
+	total =  size / (len + 4);
+
+	p = (struct dsi_cmd_desc *)kzalloc(size, GFP_KERNEL);
+	if (!p)
+		return -ENOMEM;
+
+	memcpy(p, cmds, size);
+	for (i = 0; i < total; i++) {
+		oled->cmds[i] = p;
+		p = (struct dsi_cmd_desc *)(p->payload + len);
+	}
+
+	oled->cmds_total = total;
+	oled->cmd_len = len + 4;
+
+	return 0;
+}
+
+static int sprd_oled_set_brightness(struct backlight_device *bdev)
+{
+	int level, brightness;
+	struct sprd_oled *oled = bl_get_data(bdev);
+	struct sprd_panel *panel = oled->panel;
+
+	mutex_lock(&panel_lock);
+	if (!panel->is_enabled) {
+		mutex_unlock(&panel_lock);
+		DRM_WARN("oled panel has been powered off\n");
+		return -ENXIO;
+	}
+
+	brightness = bdev->props.brightness;
+	level = brightness * oled->max_level / 255;
+
+	DRM_INFO("%s level: %d\n", __func__, level);
+
+	sprd_panel_send_cmds(panel->slave,
+			     panel->info.cmds[CMD_OLED_REG_LOCK],
+			     panel->info.cmds_len[CMD_OLED_REG_LOCK]);
+
+	if (oled->cmds_total == 1) {
+		oled->cmds[0]->payload[1] = level;
+		sprd_panel_send_cmds(panel->slave,
+			     oled->cmds[0],
+			     oled->cmd_len);
+	} else
+		sprd_panel_send_cmds(panel->slave,
+			     oled->cmds[level],
+			     oled->cmd_len);
+
+	sprd_panel_send_cmds(panel->slave,
+			     panel->info.cmds[CMD_OLED_REG_UNLOCK],
+			     panel->info.cmds_len[CMD_OLED_REG_UNLOCK]);
+
+	mutex_unlock(&panel_lock);
+
+	return 0;
+}
+
+static const struct backlight_ops sprd_oled_backlight_ops = {
+	.update_status = sprd_oled_set_brightness,
+};
+
+static int sprd_oled_backlight_init(struct sprd_panel *panel)
+{
+	struct sprd_oled *oled;
+	struct device_node *oled_node;
+	struct panel_info *info = &panel->info;
+	const void *p;
+	int bytes, rc;
+	u32 temp;
+
+	oled_node = of_get_child_by_name(info->of_node,
+				"oled-backlight");
+	if (!oled_node)
+		return 0;
+
+	oled = devm_kzalloc(&panel->dev,
+			sizeof(struct sprd_oled), GFP_KERNEL);
+	if (!oled)
+		return -ENOMEM;
+
+	oled->bdev = devm_backlight_device_register(&panel->dev,
+			"sprd_backlight", &panel->dev, oled,
+			&sprd_oled_backlight_ops, NULL);
+	if (IS_ERR(oled->bdev)) {
+		DRM_ERROR("failed to register oled backlight ops\n");
+		return PTR_ERR(oled->bdev);
+	}
+
+	p = of_get_property(oled_node, "brightness-levels", &bytes);
+	if (p) {
+		info->cmds[CMD_OLED_BRIGHTNESS] = p;
+		info->cmds_len[CMD_OLED_BRIGHTNESS] = bytes;
+	} else
+		DRM_ERROR("can't find brightness-levels property\n");
+
+	p = of_get_property(oled_node, "sprd,reg-lock", &bytes);
+	if (p) {
+		info->cmds[CMD_OLED_REG_LOCK] = p;
+		info->cmds_len[CMD_OLED_REG_LOCK] = bytes;
+	} else
+		DRM_INFO("can't find sprd,reg-lock property\n");
+
+	p = of_get_property(oled_node, "sprd,reg-unlock", &bytes);
+	if (p) {
+		info->cmds[CMD_OLED_REG_UNLOCK] = p;
+		info->cmds_len[CMD_OLED_REG_UNLOCK] = bytes;
+	} else
+		DRM_INFO("can't find sprd,reg-unlock property\n");
+
+	rc = of_property_read_u32(oled_node, "default-brightness-level", &temp);
+	if (!rc)
+		oled->bdev->props.brightness = temp;
+	else
+		oled->bdev->props.brightness = 25;
+
+	rc = of_property_read_u32(oled_node, "sprd,max-level", &temp);
+	if (!rc)
+		oled->max_level = temp;
+	else
+		oled->max_level = 255;
+
+	oled->bdev->props.max_brightness = 255;
+	oled->panel = panel;
+	of_parse_oled_cmds(oled,
+			panel->info.cmds[CMD_OLED_BRIGHTNESS],
+			panel->info.cmds_len[CMD_OLED_BRIGHTNESS]);
+
+	DRM_INFO("%s() ok\n", __func__);
+
+	return 0;
+}
+
+int sprd_panel_parse_lcddtb(struct device_node *lcd_node,
+	struct sprd_panel *panel)
 {
 	u32 val;
-	struct device_node *lcd_node;
 	struct panel_info *info = &panel->info;
 	int bytes, rc;
 	const void *p;
 	const char *str;
-	char lcd_path[60];
 
-	rc = of_property_read_string(np, "sprd,force-attached", &str);
-	if (!rc)
-		lcd_name = str;
-
-	if (!lcd_name) {
-		DRM_ERROR("No lcd name provided (uboot lcd_name= or sprd,force-attached missing)\n");
-		return -EINVAL;
-	}
-
-	sprintf(lcd_path, "/lcds/%s", lcd_name);
-	lcd_node = of_find_node_by_path(lcd_path);
 	if (!lcd_node) {
-		DRM_ERROR("%pOF: could not find %s node\n", np, lcd_name);
+		DRM_ERROR("Lcd node from dtb is Null\n");
 		return -ENODEV;
 	}
 	info->of_node = lcd_node;
@@ -597,10 +718,8 @@ static int sprd_panel_parse_dt(struct device_node *np, struct sprd_panel *panel,
 		info->format = MIPI_DSI_FMT_RGB565;
 	else if (!strcmp(str, "dsc"))
 		info->format = SPRD_MIPI_DSI_FMT_DSC;
-	else {
-	    info->format = MIPI_DSI_FMT_RGB888;
+	else
 		DRM_ERROR("dsi-color-format (%s) is not supported\n", str);
-	}
 
 	rc = of_property_read_u32(lcd_node, "sprd,width-mm", &val);
 	if (!rc)
@@ -647,11 +766,9 @@ static int sprd_panel_parse_dt(struct device_node *np, struct sprd_panel *panel,
 	else
 		info->use_dcs = false;
 
-	rc = of_parse_reset_seq(dev, lcd_node, info);
-	if (rc) {
+	rc = of_parse_reset_seq(lcd_node, info);
+	if (rc)
 		DRM_ERROR("parse lcd reset sequence failed\n");
-		goto parse_error;
-	}
 
 	p = of_get_property(lcd_node, "sprd,initial-command", &bytes);
 	if (p) {
@@ -678,40 +795,37 @@ static int sprd_panel_parse_dt(struct device_node *np, struct sprd_panel *panel,
 				     OF_USE_NATIVE_MODE);
 	if (rc) {
 		DRM_ERROR("get display timing failed\n");
-		goto parse_error;
+		return rc;
 	}
 
 	info->mode.vrefresh = drm_mode_vrefresh(&info->mode);
-	of_get_buildin_modes(info, lcd_node, dev);
-	DRM_INFO("[PANEL] lcd node: %s\n", lcd_node->name);
-	DRM_INFO("[PANEL] lanes=%d, format=%d, mode_flags=%d\n",
-		 info->lanes, info->format, info->mode_flags);
-	DRM_INFO("[PANEL] resolution=%dx%d\n",
-		 info->mode.hdisplay, info->mode.vdisplay);
-	DRM_INFO("[PANEL] width_mm=%d, height_mm=%d\n",
-		 info->mode.width_mm, info->mode.height_mm);
-	if (info->cmds[CMD_CODE_INIT])
-		DRM_INFO("[PANEL] init-command size=%d\n",
-			 info->cmds_len[CMD_CODE_INIT]);
-	else
-		DRM_WARN("[PANEL] no init-command found\n");
-
-	/* Parse backlight related properties */
-	rc = of_property_read_u32(lcd_node, "sprd,max-brightness", &val);
-	if (!rc) {
-		if (val <= BACKLIGHT_PWM_BRIGHTNESS_MAX)
-			info->cmds_len[CMD_OLED_BRIGHTNESS] = val;
-		else
-			info->cmds_len[CMD_OLED_BRIGHTNESS] = BACKLIGHT_PWM_BRIGHTNESS_DEFAULT;
-	} else
-		info->cmds_len[CMD_OLED_BRIGHTNESS] = BACKLIGHT_PWM_BRIGHTNESS_DEFAULT;
+	of_parse_buildin_modes(info, lcd_node);
 
 	return 0;
+}
 
-parse_error:
-	of_node_put(lcd_node);
-	info->of_node = NULL;
-	return rc;
+static int sprd_panel_parse_dt(struct device_node *np, struct sprd_panel *panel)
+{
+	struct device_node *lcd_node;
+	int rc;
+	const char *str;
+	char lcd_path[60];
+
+	rc = of_property_read_string(np, "sprd,force-attached", &str);
+	if (!rc)
+		lcd_name = str;
+
+	sprintf(lcd_path, "/lcds/%s", lcd_name);
+	lcd_node = of_find_node_by_path(lcd_path);
+	if (!lcd_node) {
+		DRM_ERROR("%pOF: could not find %s node\n", np, lcd_name);
+		return -ENODEV;
+	}
+	rc = sprd_panel_parse_lcddtb(lcd_node, panel);
+	if (rc)
+		return rc;
+
+	return 0;
 }
 
 static int sprd_panel_device_create(struct device *parent,
@@ -726,165 +840,46 @@ static int sprd_panel_device_create(struct device *parent,
 	return device_register(&panel->dev);
 }
 
-static int sprd_backlight_set_brightness(struct backlight_device *bdev)
-{
-	int level, brightness;
-	struct sprd_backlight *backlight = bl_get_data(bdev);
-	struct sprd_panel *panel = backlight->panel;
-
-	if (!panel || !panel->slave)
-		return 0;
-
-	mutex_lock(&panel_lock);
-	if (!panel->is_enabled) {
-		mutex_unlock(&panel_lock);
-		DRM_WARN("panel has been powered off\n");
-		return -ENXIO;
-	}
-
-	brightness = bdev->props.brightness;
-
-	level = (brightness * backlight->max_level) / 255;
-	level = min(level, 255);
-	
-	DRM_INFO("[BACKLIGHT] brightness=%d -> level=%d (cmds_total=%d)\n",
-		 brightness, level, backlight->cmds_total);
-
-	if (backlight->cmds_total == 1) {
-		backlight->cmds[0]->payload[1] = level;
-		sprd_panel_send_cmds(panel->slave,
-				     backlight->cmds[0],
-				     backlight->cmd_len);
-	} else
-		sprd_panel_send_cmds(panel->slave,
-				     backlight->cmds[level],
-				     backlight->cmd_len);
-
-	mutex_unlock(&panel_lock);
-
-	return 0;
-}
-
-static const struct backlight_ops sprd_backlight_ops = {
-	.update_status = sprd_backlight_set_brightness,
-};
-
-static int sprd_backlight_init(struct sprd_panel *panel)
-{
-	struct sprd_backlight *backlight;
-	struct device_node *bl_node;
-	struct panel_info *info = &panel->info;
-	const void *p;
-	struct dsi_cmd_desc *cmd;
-	int bytes, rc;
-	u32 temp;
-
-	DRM_INFO("[BACKLIGHT] start init\n");
-
-	bl_node = of_get_child_by_name(info->of_node, "backlight");
-	if (!bl_node)
-		bl_node = of_get_child_by_name(info->of_node, "oled-backlight");
-	if (!bl_node) {
-		DRM_INFO("[BACKLIGHT] no backlight node, skip\n");
-		return 0;
-	}
-	DRM_INFO("[BACKLIGHT] found node: %s\n", bl_node->name);
-
-	backlight = devm_kzalloc(&panel->dev,
-				 sizeof(struct sprd_backlight), GFP_KERNEL);
-	if (!backlight) {
-		of_node_put(bl_node);
-		return -ENOMEM;
-	}
-
-	backlight->panel = panel;
-
-	/* 获取 brightness-levels 属性 */
-	p = of_get_property(bl_node, "brightness-levels", &bytes);
-	if (!p) {
-		DRM_ERROR("[BACKLIGHT] no brightness-levels property\n");
-		of_node_put(bl_node);
-		return -EINVAL;
-	}
-	DRM_INFO("[BACKLIGHT] brightness-levels size = %d bytes\n", bytes);
-
-	// 无论 DTS 中是什么数据，统一构造一条标准亮度命令
-	cmd = devm_kzalloc(&panel->dev,
-		sizeof(struct dsi_cmd_desc) + 2, GFP_KERNEL);
-	if (!cmd) {
-		of_node_put(bl_node);
-		return -ENOMEM;
-	}
-
-	cmd->data_type = 0x15;
-	cmd->wait = 0;
-	cmd->wc_h = 0;
-	cmd->wc_l = 2;
-	cmd->payload[0] = 0x51;
-	cmd->payload[1] = 0;
-
-	backlight->cmds[0] = cmd;
-	backlight->cmds_total = 1;
-	backlight->cmd_len = 6;
-
-	/* 这里注册 backlight 设备，避免注册后再失败留下残废 sysfs 节点 */
-	backlight->bdev = devm_backlight_device_register(&panel->dev,
-			"sprd_backlight", &panel->dev, backlight,
-			&sprd_backlight_ops, NULL);
-	if (IS_ERR(backlight->bdev)) {
-		DRM_ERROR("failed to register backlight ops\n");
-		of_node_put(bl_node);
-		return PTR_ERR(backlight->bdev);
-	}
-
-	rc = of_property_read_u32(bl_node, "default-brightness-level", &temp);
-	if (!rc)
-		backlight->bdev->props.brightness = temp;
-	else
-		backlight->bdev->props.brightness = 25;
-
-	rc = of_property_read_u32(bl_node, "sprd,max-level", &temp);
-	if (!rc)
-		backlight->max_level = temp;
-	else
-		backlight->max_level = 255;
-
-	backlight->bdev->props.max_brightness = 255;
-	panel->backlight = backlight->bdev;
-
-	of_node_put(bl_node);
-
-	DRM_INFO("%s() Neko wants to eat your screen!\n", __func__);
-	return 0;
-}
-
 static int sprd_panel_probe(struct mipi_dsi_device *slave)
 {
 	int ret;
 	struct sprd_panel *panel;
+	struct device_node *bl_node;
 
 	panel = devm_kzalloc(&slave->dev, sizeof(*panel), GFP_KERNEL);
 	if (!panel)
 		return -ENOMEM;
 
-	DRM_INFO("Hello!Do you want some coffee?\n");
+	bl_node = of_parse_phandle(slave->dev.of_node,
+					"sprd,backlight", 0);
+	if (bl_node) {
+		panel->backlight = of_find_backlight_by_node(bl_node);
+		of_node_put(bl_node);
 
-	panel->supply = devm_regulator_get_optional(&slave->dev, "power");
-	if (IS_ERR(panel->supply)) {
-		if (PTR_ERR(panel->supply) == -ENODEV) {
-			/* DTS 没配 power-supply，认为是固定电源/GPIO 直接供电 */
-			DRM_INFO("No panel regulator found, assume fixed supply\n");
-			panel->supply = NULL;
+		if (panel->backlight) {
+			panel->backlight->props.state &= ~BL_CORE_FBBLANK;
+			panel->backlight->props.power = FB_BLANK_UNBLANK;
+			backlight_update_status(panel->backlight);
 		} else {
-			DRM_ERROR("Failed to get panel regulator: %ld\n",
-				  PTR_ERR(panel->supply));
-			return PTR_ERR(panel->supply);
+			DRM_WARN("backlight is not ready, panel probe deferred\n");
+			return -EPROBE_DEFER;
 		}
+	} else
+		DRM_WARN("backlight node not found\n");
+
+	panel->supply = devm_regulator_get(&slave->dev, "power");
+	if (IS_ERR(panel->supply)) {
+		if (PTR_ERR(panel->supply) == -EPROBE_DEFER)
+			DRM_ERROR("regulator driver not initialized, probe deffer\n");
+		else
+			DRM_ERROR("can't get regulator: %ld\n", PTR_ERR(panel->supply));
+
+		return PTR_ERR(panel->supply);
 	}
 
 	INIT_DELAYED_WORK(&panel->esd_work, sprd_panel_esd_work_func);
 
-	ret = sprd_panel_parse_dt(slave->dev.of_node, panel, &slave->dev);
+	ret = sprd_panel_parse_dt(slave->dev.of_node, panel);
 	if (ret) {
 		DRM_ERROR("parse panel info failed\n");
 		return ret;
@@ -892,17 +887,20 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 
 	ret = sprd_panel_gpio_request(&slave->dev, panel);
 	if (ret) {
-		DRM_WARN("gpio request failed\n");
-		goto err_put_node;
+		DRM_WARN("gpio is not ready, panel probe deferred\n");
+		return -EPROBE_DEFER;
 	}
-
-	panel->slave = slave;
-	mipi_dsi_set_drvdata(slave, panel);
 
 	ret = sprd_panel_device_create(&slave->dev, panel);
 	if (ret) {
 		DRM_ERROR("panel device create failed\n");
-		goto err_put_node;
+		return ret;
+	}
+
+	ret = sprd_oled_backlight_init(panel);
+	if (ret) {
+		DRM_ERROR("oled backlight init failed\n");
+		return ret;
 	}
 
 	panel->base.dev = &panel->dev;
@@ -912,7 +910,7 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 	ret = drm_panel_add(&panel->base);
 	if (ret) {
 		DRM_ERROR("drm_panel_add() failed\n");
-		goto err_device_unregister;
+		return ret;
 	}
 
 	slave->lanes = panel->info.lanes;
@@ -922,39 +920,40 @@ static int sprd_panel_probe(struct mipi_dsi_device *slave)
 	ret = mipi_dsi_attach(slave);
 	if (ret) {
 		DRM_ERROR("failed to attach dsi panel to host\n");
-		goto err_panel_remove;
+		drm_panel_remove(&panel->base);
+		return ret;
 	}
+	panel->slave = slave;
 
 	sprd_panel_sysfs_init(&panel->dev);
+	mipi_dsi_set_drvdata(slave, panel);
 
-	ret = sprd_backlight_init(panel);
-	if (ret) {
-		DRM_ERROR("backlight init failed\n");
-		goto err_dsi_detach;
+	/*
+	 * FIXME:
+	 * The esd check work should not be scheduled in probe
+	 * function. It should be scheduled in the enable()
+	 * callback function. But the dsi encoder will not call
+	 * drm_panel_enable() the first time in encoder_enable().
+	 */
+	if (panel->info.esd_check_en) {
+		schedule_delayed_work(&panel->esd_work,
+				      msecs_to_jiffies(2000));
+		panel->esd_work_pending = true;
 	}
 
-	DRM_INFO("My coffee is cold....\n");
+	panel->is_enabled = true;
+
+	DRM_INFO("panel driver probe success\n");
 
 	return 0;
-
-err_dsi_detach:
-	mipi_dsi_detach(slave);
-err_panel_remove:
-	drm_panel_remove(&panel->base);
-err_device_unregister:
-	device_unregister(&panel->dev);
-err_put_node:
-	if (panel->info.of_node) {
-		of_node_put(panel->info.of_node);
-		panel->info.of_node = NULL;
-	}
-	return ret;
 }
 
 static int sprd_panel_remove(struct mipi_dsi_device *slave)
 {
 	struct sprd_panel *panel = mipi_dsi_get_drvdata(slave);
 	int ret;
+
+	DRM_INFO("%s()\n", __func__);
 
 	sprd_panel_disable(&panel->base);
 	sprd_panel_unprepare(&panel->base);
@@ -965,14 +964,6 @@ static int sprd_panel_remove(struct mipi_dsi_device *slave)
 
 	drm_panel_detach(&panel->base);
 	drm_panel_remove(&panel->base);
-
-	device_unregister(&panel->dev);
-
-	/* 释放 of_node，因为 parse_dt 中增加了引用 */
-	if (panel->info.of_node) {
-		of_node_put(panel->info.of_node);
-		panel->info.of_node = NULL;
-	}
 
 	return 0;
 }
@@ -993,6 +984,6 @@ static struct mipi_dsi_driver sprd_panel_driver = {
 };
 module_mipi_dsi_driver(sprd_panel_driver);
 
-MODULE_AUTHOR("ZeroDreamCat <neko@0w0.cafe>");
-MODULE_DESCRIPTION("ICN3312 Simple Driver");
+MODULE_AUTHOR("Leon He <leon.he@unisoc.com>");
+MODULE_DESCRIPTION("SPRD MIPI DSI Panel Driver");
 MODULE_LICENSE("GPL v2");

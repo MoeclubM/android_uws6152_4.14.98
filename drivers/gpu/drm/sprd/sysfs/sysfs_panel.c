@@ -28,11 +28,11 @@ static ssize_t name_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 	struct panel_info *info = &panel->info;
+	int ret;
 
-	if (!info->of_node)
-		return -ENODEV;
+	ret = snprintf(buf, PAGE_SIZE, "%s\n", info->of_node->name);
 
-	return snprintf(buf, PAGE_SIZE, "%s\n", info->of_node->name);
+	return ret;
 }
 static DEVICE_ATTR_RO(name);
 
@@ -41,8 +41,11 @@ static ssize_t lane_num_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 	struct panel_info *info = &panel->info;
+	int ret;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", info->lanes);
+	ret = snprintf(buf, PAGE_SIZE, "%u\n", info->lanes);
+
+	return ret;
 }
 static DEVICE_ATTR_RO(lane_num);
 
@@ -51,8 +54,11 @@ static ssize_t pixel_clock_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 	struct panel_info *info = &panel->info;
+	int ret;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", info->mode.clock * 1000);
+	ret = snprintf(buf, PAGE_SIZE, "%u\n", info->mode.clock * 1000);
+
+	return ret;
 }
 static DEVICE_ATTR_RO(pixel_clock);
 
@@ -61,9 +67,12 @@ static ssize_t resolution_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 	struct panel_info *info = &panel->info;
+	int ret;
 
-	return snprintf(buf, PAGE_SIZE, "%ux%u\n",
-			info->mode.hdisplay, info->mode.vdisplay);
+	ret = snprintf(buf, PAGE_SIZE, "%ux%u\n", info->mode.hdisplay,
+						info->mode.vdisplay);
+
+	return ret;
 }
 static DEVICE_ATTR_RO(resolution);
 
@@ -72,9 +81,12 @@ static ssize_t screen_size_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 	struct panel_info *info = &panel->info;
+	int ret;
 
-	return snprintf(buf, PAGE_SIZE, "%umm x %umm\n",
-			info->mode.width_mm, info->mode.height_mm);
+	ret = snprintf(buf, PAGE_SIZE, "%umm x %umm\n", info->mode.width_mm,
+						info->mode.height_mm);
+
+	return ret;
 }
 static DEVICE_ATTR_RO(screen_size);
 
@@ -84,10 +96,15 @@ static ssize_t hporch_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 	struct videomode vm;
+	int ret;
 
 	drm_display_mode_to_videomode(&panel->info.mode, &vm);
-	return snprintf(buf, PAGE_SIZE, "hfp=%u hbp=%u hsync=%u\n",
-			vm.hfront_porch, vm.hback_porch, vm.hsync_len);
+	ret = snprintf(buf, PAGE_SIZE, "hfp=%u hbp=%u hsync=%u\n",
+				   vm.hfront_porch,
+				   vm.hback_porch,
+				   vm.hsync_len);
+
+	return ret;
 }
 
 static ssize_t hporch_store(struct device *dev,
@@ -95,38 +112,31 @@ static ssize_t hporch_store(struct device *dev,
 				const char *buf, size_t count)
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
-	struct drm_device *drm;
-	struct drm_connector *connector;
+	struct drm_device *drm = panel->base.drm;
+	struct drm_connector *connector = panel->base.connector;
 	struct videomode vm;
 	u32 val[4] = {0};
 	int len;
 
-	if (!panel->base.drm || !panel->base.connector)
-		return -ENODEV;
-
-	drm = panel->base.drm;
-	connector = panel->base.connector;
-
 	len = str_to_u32_array(buf, 0, val);
-
 	drm_display_mode_to_videomode(&panel->info.mode, &vm);
 
 	switch (len) {
+	/* Fall through */
 	case 3:
 		vm.hsync_len = val[2];
-		/* Fall through */
+	/* Fall through */
 	case 2:
 		vm.hback_porch = val[1];
-		/* Fall through */
+	/* Fall through */
 	case 1:
 		vm.hfront_porch = val[0];
-		/* Fall through */
+	/* Fall through */
 	default:
 		break;
 	}
 
 	drm_display_mode_from_videomode(&vm, &panel->info.mode);
-
 	mutex_lock(&drm->mode_config.mutex);
 	drm_helper_probe_single_connector_modes(connector, 0, 0);
 	mutex_unlock(&drm->mode_config.mutex);
@@ -141,10 +151,15 @@ static ssize_t vporch_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 	struct videomode vm;
+	int ret;
 
 	drm_display_mode_to_videomode(&panel->info.mode, &vm);
-	return snprintf(buf, PAGE_SIZE, "vfp=%u vbp=%u vsync=%u\n",
-			vm.vfront_porch, vm.vback_porch, vm.vsync_len);
+	ret = snprintf(buf, PAGE_SIZE, "vfp=%u vbp=%u vsync=%u\n",
+				   vm.vfront_porch,
+				   vm.vback_porch,
+				   vm.vsync_len);
+
+	return ret;
 }
 
 static ssize_t vporch_store(struct device *dev,
@@ -152,38 +167,31 @@ static ssize_t vporch_store(struct device *dev,
 				const char *buf, size_t count)
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
-	struct drm_device *drm;
-	struct drm_connector *connector;
+	struct drm_device *drm = panel->base.drm;
+	struct drm_connector *connector = panel->base.connector;
 	struct videomode vm;
 	u32 val[4] = {0};
 	int len;
 
-	if (!panel->base.drm || !panel->base.connector)
-		return -ENODEV;
-
-	drm = panel->base.drm;
-	connector = panel->base.connector;
-
 	len = str_to_u32_array(buf, 0, val);
-
 	drm_display_mode_to_videomode(&panel->info.mode, &vm);
 
 	switch (len) {
+	/* Fall through */
 	case 3:
 		vm.vsync_len = val[2];
-		/* Fall through */
+	/* Fall through */
 	case 2:
 		vm.vback_porch = val[1];
-		/* Fall through */
+	/* Fall through */
 	case 1:
 		vm.vfront_porch = val[0];
-		/* Fall through */
+	/* Fall through */
 	default:
 		break;
 	}
 
 	drm_display_mode_from_videomode(&vm, &panel->info.mode);
-
 	mutex_lock(&drm->mode_config.mutex);
 	drm_helper_probe_single_connector_modes(connector, 0, 0);
 	mutex_unlock(&drm->mode_config.mutex);
@@ -209,9 +217,6 @@ static ssize_t esd_check_enable_store(struct device *dev,
 	struct panel_info *info = &panel->info;
 	int enable;
 
-	if (!panel->slave || !panel->slave->host)
-		return -ENODEV;
-
 	if (kstrtoint(buf, 10, &enable)) {
 		pr_err("invalid input for esd check enable\n");
 		return -EINVAL;
@@ -236,6 +241,7 @@ static ssize_t esd_check_enable_store(struct device *dev,
 	}
 
 	return count;
+
 }
 static DEVICE_ATTR_RW(esd_check_enable);
 
@@ -263,6 +269,7 @@ static ssize_t esd_check_mode_store(struct device *dev,
 	panel->info.esd_check_mode = mode;
 
 	return count;
+
 }
 static DEVICE_ATTR_RW(esd_check_mode);
 
@@ -290,6 +297,7 @@ static ssize_t esd_check_period_store(struct device *dev,
 	panel->info.esd_check_period = period;
 
 	return count;
+
 }
 static DEVICE_ATTR_RW(esd_check_period);
 
@@ -317,6 +325,7 @@ static ssize_t esd_check_register_store(struct device *dev,
 	panel->info.esd_check_reg = reg;
 
 	return count;
+
 }
 static DEVICE_ATTR_RW(esd_check_register);
 
@@ -326,7 +335,8 @@ static ssize_t esd_check_value_show(struct device *dev,
 {
 	struct sprd_panel *panel = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "0x%02x\n", panel->info.esd_check_val);
+	return snprintf(buf, PAGE_SIZE, "0x%02x\n",
+			panel->info.esd_check_val);
 }
 
 static ssize_t esd_check_value_store(struct device *dev,
@@ -344,6 +354,7 @@ static ssize_t esd_check_value_store(struct device *dev,
 	panel->info.esd_check_val = value;
 
 	return count;
+
 }
 static DEVICE_ATTR_RW(esd_check_value);
 

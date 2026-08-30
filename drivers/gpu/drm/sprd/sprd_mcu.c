@@ -240,7 +240,7 @@ static int sprd_sensor_remove(struct i2c_client *client)
 }
 
 static const struct of_device_id sprd_sensor_main_of_match_table[] = {
-	{.compatible = "sprd,mcu-main"},
+	{.compatible = "sprd,sensor-main"},
 };
 
 static const struct i2c_device_id sprd_sensor_main_ids[] = {
