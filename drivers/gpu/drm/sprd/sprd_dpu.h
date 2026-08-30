@@ -28,10 +28,7 @@
 #include <drm/drm_vblank.h>
 #include <uapi/drm/drm_mode.h>
 #include "disp_lib.h"
-#include "sprd_dsi.h"
-#include "sprd_panel.h"
-#include "dsi/sprd_dsi_api.h"
-#include "dsi/sprd_dsi_hal.h"
+
 #define DRM_MODE_BLEND_PREMULTI		2
 #define DRM_MODE_BLEND_COVERAGE		1
 #define DRM_MODE_BLEND_PIXEL_NONE	0
@@ -44,11 +41,7 @@
 #define DISPC_INT_DPI_VSYNC_MASK	BIT(5)
 #define DISPC_INT_WB_DONE_MASK		BIT(6)
 #define DISPC_INT_WB_FAIL_MASK		BIT(7)
-#define cabc_cfg0			268439552
-#define cabc_cfg1			268439552
-#define cabc_cfg2			16777215
-#define cabc_cfg3			0
-#define cabc_cfg4			0
+
 /* NOTE: this mask is not a realy dpu interrupt mask */
 #define DISPC_INT_FENCE_SIGNAL_REQUEST	BIT(31)
 
@@ -86,20 +79,6 @@ enum {
 	ENHANCE_CFG_ID_LTM,
 	ENHANCE_CFG_ID_CABC,
 	ENHANCE_CFG_ID_SLP_LUT,
-	ENHANCE_CFG_ID_LUT3D,
-	ENHANCE_CFG_ID_SR_EPF,
-	ENHANCE_CFG_ID_CABC_MODE,
-	ENHANCE_CFG_ID_CABC_HIST,
-	ENHANCE_CFG_ID_CABC_HIST_V2,
-	ENHANCE_CFG_ID_VSYNC_COUNT,
-	ENHANCE_CFG_ID_FRAME_NO,
-	ENHANCE_CFG_ID_CABC_NO,
-	ENHANCE_CFG_ID_CABC_CUR_BL,
-	ENHANCE_CFG_ID_CABC_PARAM,
-	ENHANCE_CFG_ID_CABC_RUN,
-	ENHANCE_CFG_ID_CABC_STATE,
-	ENHANCE_CFG_ID_UD,
-	ENHANCE_CFG_ID_UPDATE_LUTS,
 	ENHANCE_CFG_ID_MAX
 };
 
@@ -128,7 +107,6 @@ struct sprd_dpu_layer {
 	u32 y2r_coef;
 	u8 pallete_en;
 	u32 pallete_color;
-	u32 secure_en;
 };
 
 struct dpu_capability {
@@ -161,8 +139,6 @@ struct dpu_core_ops {
 	void (*enhance_get)(struct dpu_context *ctx, u32 id, void *param);
 	int (*modeset)(struct dpu_context *ctx,
 			struct drm_mode_modeinfo *mode);
-	bool (*check_raw_int)(struct dpu_context *ctx, u32 mask);
-	void (*dma_request)(struct dpu_context *ctx);
 };
 
 struct dpu_clk_ops {
@@ -188,33 +164,18 @@ struct dpu_context {
 	unsigned long base;
 	u32 base_offset[2];
 	const char *version;
-	u32 corner_size;
 	int irq;
 	u8 if_type;
 	u8 id;
 	bool is_inited;
 	bool is_stopped;
-	bool is_single_run;
 	bool disable_flip;
 	struct videomode vm;
 	struct semaphore refresh_lock;
-	struct mutex vrr_lock;
-	struct semaphore cabc_lock;
 	struct work_struct wb_work;
-	struct tasklet_struct dvfs_task;
+	struct work_struct dvfs_work;
 	u32 wb_addr_p;
 	irqreturn_t (*dpu_isr)(int irq, void *data);
-	wait_queue_head_t te_wq;
-	bool te_check_en;
-	bool evt_te;
-	unsigned long logo_addr;
-	unsigned long logo_size;
-	int vrefresh;
-	struct work_struct cabc_work;
-	struct work_struct cabc_bl_update;
-	bool dual_dsi_en;
-	bool dsc_en;
-	int  dsc_mode;
 };
 
 struct sprd_dpu {
@@ -226,16 +187,12 @@ struct sprd_dpu {
 	struct dpu_glb_ops *glb;
 	struct drm_display_mode *mode;
 	struct sprd_dpu_layer *layers;
-	struct sprd_dsi *dsi;
 	u8 pending_planes;
 };
 
 extern struct list_head dpu_core_head;
 extern struct list_head dpu_clk_head;
 extern struct list_head dpu_glb_head;
-extern bool calibration_mode;
-extern bool dynamic_framerate_mode;
-extern bool vrr_mode;
 
 static inline struct sprd_dpu *crtc_to_dpu(struct drm_crtc *crtc)
 {
@@ -258,6 +215,5 @@ static inline struct sprd_dpu *crtc_to_dpu(struct drm_crtc *crtc)
 
 int sprd_dpu_run(struct sprd_dpu *dpu);
 int sprd_dpu_stop(struct sprd_dpu *dpu);
-void sprd_dpu_resume(struct sprd_dpu *dpu);
 
 #endif
