@@ -47,16 +47,6 @@
 #include <misc/wcn_bus.h>
 #include <linux/dma-direction.h>
 #include <linux/dma-mapping.h>
-#include <linux/tty_driver.h>
-#include <linux/tty_flip.h>
-#include <linux/serial.h>
-#include <linux/serdev.h>
-
-/* Bluetooth HCI definitions */
-#include <net/bluetooth/bluetooth.h>
-#include <net/bluetooth/hci.h>
-#include <net/bluetooth/hci_core.h>
-#include "../../../../bluetooth/hci_uart.h"
 
 static struct semaphore sem_id;
 
@@ -83,11 +73,6 @@ struct mtty_device {
     /*struct tasklet_struct rx_task;*/
     struct work_struct bt_rx_work;
     struct workqueue_struct *bt_rx_workqueue;
-    /* HCI protocol */
-    int hci_proto;
-    /* HCI device */
-    struct hci_dev *hdev;
-    unsigned long hci_flags;
 };
 
 typedef struct {
@@ -134,17 +119,22 @@ static ssize_t chipid_show(struct device *dev,
                        "%s: chipid: %d, chipid_str: %s",
                        __func__, id, id_str);
 
-    i = scnprintf(buf, PAGE_SIZE, "%d/%s", id, id_str ? id_str : "unknown");
+    i = scnprintf(buf, PAGE_SIZE, "%d/", id);
     dev_unisoc_bt_info(ttyBT_dev,
-                       "%s: chipid: %d, chipid_str: %s, result: %s\n",
-                       __func__, id, id_str ? id_str : "NULL", buf);
+                       "%s: buf: %s, i = %d",
+                       __func__, buf, i);
+    strcat(buf, id_str);
+    i += scnprintf(buf + i, PAGE_SIZE - i, "%s", buf + i);
+    dev_unisoc_bt_info(ttyBT_dev,
+                       "%s: buf: %s, i = %d",
+                       __func__, buf, i);
     return i;
 }
 
 static ssize_t dumpmem_store(struct device *dev,
     struct device_attribute *attr, const char *buf, size_t count)
 {
-    if (buf[0] == '2') {
+    if (buf[0] == 2) {
         dev_unisoc_bt_info(ttyBT_dev,
                            "Set is_user_debug true!\n");
         is_user_debug = true;
@@ -272,29 +262,17 @@ int mtty_dma_buf_alloc(int chn, int size, int num)
 	ret = sprdwcn_bus_list_alloc(chn, &head, &tail, &num);
 	if (ret != 0)
 		return -1;
-	for (i = 0, mbuf = head; i < num; i++, mbuf = mbuf->next) {
+	for (i = 0, mbuf = head; i < num; i++) {
 		ret = mtty_dmalloc(dm_rx_t, &temp, size);
-		if (ret != 0) {
-			/* Rollback: free already allocated DMA buffers */
-			int j;
-			for (j = 0; j < i; j++) {
-				if (dm_rx_ptr[j]) {
-					dma_free_coherent(dm_rx_t, size,
-							  (void *)dm_rx_ptr[j],
-							  dm_rx_phy[j]);
-					dm_rx_ptr[j] = NULL;
-					dm_rx_phy[j] = 0;
-				}
-			}
-			sprdwcn_bus_list_free(chn, head, tail, i);
-			return -ENOMEM;
-		}
+		if (ret != 0)
+			return -1;
 		mbuf->buf = (unsigned char *)(temp.vir);
         dm_rx_ptr[i] = mbuf->buf;
 		mbuf->phy = (unsigned long)(temp.phy);
         dm_rx_phy[i] = mbuf->phy;
 		mbuf->len = temp.size;
 		memset(mbuf->buf, 0x0, mbuf->len);
+		mbuf = mbuf->next;
 	}
 
 	ret = sprdwcn_bus_push_list(chn, head, tail, num);
@@ -305,15 +283,13 @@ int mtty_dma_buf_alloc(int chn, int size, int num)
 int mtty_dma_buf_free(int num) {
     int loop_count = 0;
     for (; loop_count < num; loop_count++) {
-        if (!dm_rx_t || !dm_rx_ptr[loop_count]) {
-            dev_unisoc_bt_err(ttyBT_dev, "%s: dm_rx_t or dm_rx_ptr[%d] is NULL, skip\n",
-                              __func__, loop_count);
-            continue;
+        if(!dm_rx_t) {
+			dev_unisoc_bt_err(ttyBT_dev,"%s: dm_rx_t or is dm_rx_ptr NULL \n", __func__);	
+        } else {
+            dma_free_coherent(dm_rx_t, BT_PCIE_RX_DMA_SIZE , (void *)dm_rx_ptr[loop_count], dm_rx_phy[loop_count]);
+			dev_unisoc_bt_err(ttyBT_dev,"%s: free  dm_rx_ptr[%d] success \n", __func__, loop_count);
+            dm_rx_ptr[loop_count] = NULL;
         }
-        dma_free_coherent(dm_rx_t, BT_PCIE_RX_DMA_SIZE, (void *)dm_rx_ptr[loop_count], dm_rx_phy[loop_count]);
-        dev_unisoc_bt_info(ttyBT_dev, "%s: free dm_rx_ptr[%d] success\n", __func__, loop_count);
-        dm_rx_ptr[loop_count] = NULL;
-        dm_rx_phy[loop_count] = 0;
     }
     return 0;
 }
@@ -366,23 +342,12 @@ static void mtty_rx_work_queue(struct work_struct *work)
                               "mtty over load working at channel: %d, len: %d\n",
                               rx->channel, rx->head->len);
             for (i = 0; i < rx->head->len; i++) {
-                int retry_count = 0;
-                while (retry_count < 100) {
-                    ret = tty_insert_flip_char(mtty->port,
-                                *(rx->head->buf+i), TTY_NORMAL);
-                    if (ret == 1) {
-                        break;
-                    } else if (ret == 0) {
-                        retry_count++;
-                        if (retry_count >= 100) {
-                            dev_unisoc_bt_err(ttyBT_dev,
-                                              "mtty over load tty buffer full, dropping data\n");
-                            break;
-                        }
-                        msleep(1);
-                    }
-                }
-                if (ret == 1) {
+                ret = tty_insert_flip_char(mtty->port,
+                            *(rx->head->buf+i), TTY_NORMAL);
+                if (ret != 1) {
+                    i--;
+                    continue;
+                } else {
                     tty_flip_buffer_push(mtty->port);
                 }
             }
@@ -443,28 +408,6 @@ static int mtty_sdio_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
                               __func__, ret, block_size);
             if (ret)
                 tty_flip_buffer_push(mtty_dev->port);
-
-            /* 直接调用 hci_recv_frame() 将 HCI 数据传递给协议栈 */
-            if (mtty_dev->hdev) {
-                struct sk_buff *skb;
-                unsigned char *hci_data;
-                skb = bt_skb_alloc(block_size, GFP_ATOMIC);
-                if (skb) {
-                    hci_data = (unsigned char *)head->buf + BT_SDIO_HEAD_LEN;
-                    skb_put_data(skb, hci_data, block_size);
-                    hci_skb_pkt_type(skb) = hci_data[0];
-                    ret = hci_recv_frame(mtty_dev->hdev, skb);
-                    if (ret < 0)
-                        dev_unisoc_bt_err(ttyBT_dev,
-                                          "%s hci_recv_frame failed: %d\n",
-                                          __func__, ret);
-                } else {
-                    dev_unisoc_bt_err(ttyBT_dev,
-                                      "%s bt_skb_alloc failed\n",
-                                      __func__);
-                }
-            }
-
             if (ret == (block_size)) {
                 dev_unisoc_bt_dbg(ttyBT_dev,
                                   "%s send success",
@@ -547,28 +490,6 @@ static int mtty_pcie_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
 			dev_unisoc_bt_dbg(ttyBT_dev,"%s() ret=%d, len=%d\n", __func__, ret, len_send);
             if (ret)
                 tty_flip_buffer_push(mtty_dev->port);
-
-            /* 直接调用 hci_recv_frame() 将 HCI 数据传递给协议栈 */
-            if (mtty_dev->hdev) {
-                struct sk_buff *skb;
-                unsigned char *hci_data;
-                skb = bt_skb_alloc(len_send, GFP_ATOMIC);
-                if (skb) {
-                    hci_data = (unsigned char *)head->buf + BT_PCIE_HEAD_LEN;
-                    skb_put_data(skb, hci_data, len_send);
-                    hci_skb_pkt_type(skb) = hci_data[0];
-                    ret = hci_recv_frame(mtty_dev->hdev, skb);
-                    if (ret < 0)
-                        dev_unisoc_bt_err(ttyBT_dev,
-                                          "%s() hci_recv_frame failed: %d\n",
-                                          __func__, ret);
-                } else {
-                    dev_unisoc_bt_err(ttyBT_dev,
-                                      "%s() bt_skb_alloc failed\n",
-                                      __func__);
-                }
-            }
-
             if (ret == (len_send)) {
 				dev_unisoc_bt_dbg(ttyBT_dev,"%s() send success", __func__);
                 sprdwcn_bus_push_list(chn, head, tail, num);
@@ -596,7 +517,7 @@ static int mtty_pcie_rx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
             return -ENOMEM;
         }
 
-        memcpy(rx->head->buf, head->buf + BT_PCIE_HEAD_LEN + ret, rx->head->len);
+        memcpy(rx->head->buf, head->buf, rx->head->len);
         sprdwcn_bus_push_list(chn, head, tail, num);
         mutex_lock(&mtty_dev->rw_mutex);
 		dev_unisoc_bt_dbg(ttyBT_dev,"mtty over load push %d -> %d, channel: %d len: %d\n",
@@ -665,132 +586,13 @@ static int mtty_pcie_tx_cb(int chn, struct mbuf_t *head, struct mbuf_t *tail, in
     return 0;
 }
 
-/* HCI callback: open device */
-static int mtty_hci_open(struct hci_dev *hdev)
-{
-    struct mtty_device *mtty = hci_get_drvdata(hdev);
-
-    BT_DBG("%s", hdev->name);
-
-    if (!mtty)
-        return -ENODEV;
-
-    atomic_set(&mtty->state, MTTY_STATE_OPEN);
-    return 0;
-}
-
-/* HCI callback: close device */
-static int mtty_hci_close(struct hci_dev *hdev)
-{
-    struct mtty_device *mtty = hci_get_drvdata(hdev);
-
-    BT_DBG("%s", hdev->name);
-
-    if (!mtty)
-        return -ENODEV;
-
-    atomic_set(&mtty->state, MTTY_STATE_CLOSE);
-    return 0;
-}
-
-/* HCI callback: flush device */
-static int mtty_hci_flush(struct hci_dev *hdev)
-{
-    struct mtty_device *mtty = hci_get_drvdata(hdev);
-    struct tty_struct *tty;
-
-    BT_DBG("%s", hdev->name);
-
-    if (!mtty)
-        return 0;
-
-    mutex_lock(&mtty->rw_mutex);
-    tty = mtty->tty;
-    if (tty && atomic_read(&mtty->state) == MTTY_STATE_OPEN &&
-        tty->ops && tty->ops->flush_buffer) {
-        tty->ops->flush_buffer(tty);
-    }
-    mutex_unlock(&mtty->rw_mutex);
-    return 0;
-}
-
-/* HCI callback: send frame */
-static int mtty_hci_send_frame(struct hci_dev *hdev, struct sk_buff *skb)
-{
-    struct mtty_device *mtty = hci_get_drvdata(hdev);
-    unsigned char *ptr;
-    int ret;
-
-    BT_DBG("%s: type %d len %d", hdev->name, hci_skb_pkt_type(skb), skb->len);
-
-    if (!mtty)
-        return -ENODEV;
-
-    mutex_lock(&mtty->rw_mutex);
-    if (!mtty->tty ||
-        atomic_read(&mtty->state) != MTTY_STATE_OPEN) {
-        mutex_unlock(&mtty->rw_mutex);
-        return -ENODEV;
-    }
-    ptr = skb->data;
-    ret = mtty->tty->ops->write(mtty->tty, ptr, skb->len);
-    mutex_unlock(&mtty->rw_mutex);
-
-    /* Check return value BEFORE freeing skb to avoid use-after-free */
-    if (ret < 0) {
-        kfree_skb(skb);
-        return ret;
-    }
-    if (ret < skb->len) {
-        kfree_skb(skb);
-        return -EIO;
-    }
-    kfree_skb(skb);
-    return 0;
-}
-
-/* HCI callback: setup device */
-static int mtty_hci_setup(struct hci_dev *hdev)
-{
-    struct mtty_device *mtty = hci_get_drvdata(hdev);
-
-    BT_DBG("%s", hdev->name);
-
-    if (!mtty)
-        return -ENODEV;
-
-    mutex_lock(&mtty->rw_mutex);
-    if (!mtty->tty ||
-        atomic_read(&mtty->state) != MTTY_STATE_OPEN) {
-        mutex_unlock(&mtty->rw_mutex);
-        return -ENODEV;
-    }
-
-    /* Send HCI reset command */
-    /* HCI Reset: opcode 0x0c03, parameter length 0 */
-    if (mtty->tty->ops && mtty->tty->ops->write) {
-        unsigned char reset_cmd[] = {
-            0x01,       /* HCI packet type: command */
-            0x03, 0x0c, /* HCI opcode: HCI_OP_RESET (0x0c03) - little endian */
-            0x00,       /* Parameter total length */
-        };
-        int ret = mtty->tty->ops->write(mtty->tty, reset_cmd, sizeof(reset_cmd));
-        mutex_unlock(&mtty->rw_mutex);
-        if (ret < 0)
-            return ret;
-        if (ret < (int)sizeof(reset_cmd))
-            return -EIO;
-        return 0;
-    }
-    mutex_unlock(&mtty->rw_mutex);
-    return 0;
-}
-
 static int mtty_open(struct tty_struct *tty, struct file *filp)
 {
     struct mtty_device *mtty = NULL;
     struct tty_driver *driver = NULL;
 
+    data_dump = (bt_host_data_dump* )vmalloc(sizeof(bt_host_data_dump));
+    memset(data_dump, 0 , sizeof(bt_host_data_dump));
     if (tty == NULL) {
         dev_unisoc_bt_err(ttyBT_dev,
                           "mtty open input tty is NULL!\n");
@@ -805,19 +607,6 @@ static int mtty_open(struct tty_struct *tty, struct file *filp)
         return -ENOMEM;
     }
 
-    /* Free old data_dump if exists */
-    if (data_dump != NULL) {
-        vfree(data_dump);
-        data_dump = NULL;
-    }
-    data_dump = (bt_host_data_dump*) vmalloc(sizeof(bt_host_data_dump));
-    if (data_dump == NULL) {
-        dev_unisoc_bt_err(ttyBT_dev,
-                          "mtty open failed to allocate data_dump\n");
-        return -ENOMEM;
-    }
-    memset(data_dump, 0, sizeof(bt_host_data_dump));
-
     mtty->tty = tty;
     tty->driver_data = (void *)mtty;
 
@@ -828,14 +617,7 @@ static int mtty_open(struct tty_struct *tty, struct file *filp)
 	if (wcn_hw_type == HW_TYPE_PCIE) {
 		sprdwcn_bus_chn_init(&bt_pcie_rx_ops);
 		sprdwcn_bus_chn_init(&bt_pcie_tx_ops);
-		if (mtty_dma_buf_alloc(BT_PCIE_RX_CHANNEL, BT_PCIE_RX_DMA_SIZE, BT_PCIE_RX_MAX_NUM) < 0) {
-			dev_unisoc_bt_err(ttyBT_dev,
-			                  "%s: DMA buffer allocation failed\n",
-			                  __func__);
-			sprdwcn_bus_chn_deinit(&bt_pcie_rx_ops);
-			sprdwcn_bus_chn_deinit(&bt_pcie_tx_ops);
-			return -ENOMEM;
-		}
+		mtty_dma_buf_alloc(BT_PCIE_RX_CHANNEL, BT_PCIE_RX_DMA_SIZE, BT_PCIE_RX_MAX_NUM);
 	}
     dev_unisoc_bt_info(ttyBT_dev,
                        "mtty_open device success!\n");
@@ -866,7 +648,6 @@ static void mtty_close(struct tty_struct *tty, struct file *filp)
 	}
 
     atomic_set(&mtty->state, MTTY_STATE_CLOSE);
-    mtty->tty = NULL;  /* Prevent HCI callbacks from accessing freed tty */
     sitm_cleanup();
 
     if (data_dump != NULL) {
@@ -918,14 +699,10 @@ static int mtty_sdio_write(struct tty_struct *tty,
 		block = NULL;
 		return -ENOMEM;
 	}
-	    tx_head->buf = block;
-	    tx_head->len = count + BT_SDIO_HEAD_LEN;
-	    tx_head->next = NULL;
-	    /* Fill SDIO header: channel 3 (BT_TX_INOUT), type 0 */
-	    block[0] = (3 << 1) | 0;  /* channel 3, bit 0 = 0 */
-	    block[1] = 0;
-	    block[2] = 0;
-	    block[3] = 0;
+	tx_head->buf = block;
+	tx_head->len = count;
+	tx_head->next = NULL;
+
 	ret = sprdwcn_bus_push_list(BT_SDIO_TX_CHANNEL, tx_head, tx_tail, num);
 	if (ret) {
 		dev_unisoc_bt_err(ttyBT_dev,
@@ -961,8 +738,6 @@ static int mtty_pcie_write(struct tty_struct *tty,
 			dev_unisoc_bt_err(ttyBT_dev,"dma_set_mask err ret %d\n", ret);
 			if ((ret = dma_set_coherent_mask(dm, DMA_BIT_MASK(64)))) {
 				dev_unisoc_bt_err(ttyBT_dev,"dma_set_coherent_mask err ret %d\n", ret);
-				sprdwcn_bus_list_free(BT_PCIE_TX_CHANNEL, tx_head, tx_tail, num);
-				up(&sem_id);
 				return -ENOMEM;
 			}
 		}
@@ -972,8 +747,6 @@ static int mtty_pcie_write(struct tty_struct *tty,
 		{
 			dev_unisoc_bt_err(ttyBT_dev,"%s:line:%d dma_alloc_coherent err dev %p count %d phy %p\n",
 					__func__, __LINE__, mtty_dev->tty->dev, count, &(tx_head->phy));
-			sprdwcn_bus_list_free(BT_PCIE_TX_CHANNEL, tx_head, tx_tail, num);
-			up(&sem_id);
 			return -ENOMEM;
 		}
 		memcpy(tx_head->buf, buf, count);
@@ -1043,64 +816,12 @@ static int mtty_write_room(struct tty_struct *tty)
 	return INT_MAX;
 }
 
-static int mtty_ioctl(struct tty_struct *tty,
-                      unsigned int cmd, unsigned long arg)
-{
-    struct mtty_device *mtty = tty->driver_data;
-    int ret = -ENOIOCTLCMD;
-
-    if (!mtty)
-        return -EBADF;
-
-    switch (cmd) {
-    case HCIUARTSETPROTO:
-        dev_unisoc_bt_info(ttyBT_dev,
-                           "mtty_ioctl: HCIUARTSETPROTO=%d\n", (int)arg);
-        /* Store the protocol for later use */
-        mtty->hci_proto = (int)arg;
-        ret = 0;
-        break;
-
-    case HCIUARTGETPROTO:
-        dev_unisoc_bt_info(ttyBT_dev,
-                           "mtty_ioctl: HCIUARTGETPROTO\n");
-        ret = mtty->hci_proto;
-        break;
-
-    case HCIUARTGETDEVICE:
-        dev_unisoc_bt_info(ttyBT_dev,
-                           "mtty_ioctl: HCIUARTGETDEVICE\n");
-        ret = 0;  /* Return hci0 */
-        break;
-
-    case HCIUARTSETFLAGS:
-        dev_unisoc_bt_info(ttyBT_dev,
-                           "mtty_ioctl: HCIUARTSETFLAGS\n");
-        ret = 0;
-        break;
-
-    case HCIUARTGETFLAGS:
-        dev_unisoc_bt_info(ttyBT_dev,
-                           "mtty_ioctl: HCIUARTGETFLAGS\n");
-        ret = 0;
-        break;
-
-    default:
-        dev_unisoc_bt_info(ttyBT_dev,
-                           "mtty_ioctl: unknown cmd=0x%x\n", cmd);
-        break;
-    }
-
-    return ret;
-}
-
 static const struct tty_operations mtty_ops = {
     .open  = mtty_open,
     .close = mtty_close,
     .write = mtty_write_plus,
     .flush_chars = mtty_flush_chars,
     .write_room  = mtty_write_room,
-    .ioctl = mtty_ioctl,
 };
 
 static struct tty_port *mtty_port_init(void)
@@ -1194,10 +915,15 @@ error:
 
 static inline void mtty_destroy_pdata(struct mtty_init_data **init)
 {
+#ifdef CONFIG_OF
     struct mtty_init_data *pdata = *init;
 
     kfree(pdata);
+
     *init = NULL;
+#else
+    return;
+#endif
 }
 
 struct mchn_ops_t bt_sdio_rx_ops = {
@@ -1235,7 +961,6 @@ static int bluetooth_reset(struct notifier_block *this, unsigned long ev, void *
     int ret = 0;
     int block_size = RESET_BUFSIZE;
 	unsigned char reset_buf[RESET_BUFSIZE]= {0x04, 0xff, 0x02, 0x57, 0xa5};
-    int reset_retry;
 
 	dev_unisoc_bt_info(ttyBT_dev,"%s: reset callback coming\n", __func__);
 	if (mtty_dev != NULL) {
@@ -1243,7 +968,7 @@ static int bluetooth_reset(struct notifier_block *this, unsigned long ev, void *
 
 			dev_unisoc_bt_info(ttyBT_dev,"%s tty_insert_flip_string", __func__);
 
-			for (reset_retry = 0; reset_retry < 100 && ret < block_size; reset_retry++) {
+			while(ret < block_size){
 				dev_unisoc_bt_info(ttyBT_dev,"%s before tty_insert_flip_string ret: %d, len: %d\n",
 						__func__, ret, RESET_BUFSIZE);
 				ret = tty_insert_flip_string(mtty_dev->port,
@@ -1254,11 +979,6 @@ static int bluetooth_reset(struct notifier_block *this, unsigned long ev, void *
 					tty_flip_buffer_push(mtty_dev->port);
 				block_size = block_size - ret;
 				ret = 0;
-			}
-			if (reset_retry >= 100) {
-				dev_unisoc_bt_err(ttyBT_dev,
-								  "%s: reset buffer full, dropping reset data\n",
-								  __func__);
 			}
 		}
 	}
@@ -1286,17 +1006,10 @@ static int  mtty_probe(struct platform_device *pdev)
         }
     }
 
-    /* Default name if pdata is NULL */
-    if (!pdata) {
-        pdata = kzalloc(sizeof(struct mtty_init_data), GFP_KERNEL);
-        if (!pdata)
-            return -ENOMEM;
-        pdata->name = "ttyBT";
-    }
-
     mtty = kzalloc(sizeof(struct mtty_device), GFP_KERNEL);
     ttyBT_dev = &pdev->dev;
     if (mtty == NULL) {
+        mtty_destroy_pdata(&pdata);
         dev_unisoc_bt_err(ttyBT_dev,
                           "mtty Failed to allocate device!\n");
         return -ENOMEM;
@@ -1305,6 +1018,7 @@ static int  mtty_probe(struct platform_device *pdev)
     mtty->pdata = pdata;
     rval = mtty_tty_driver_init(mtty);
     if (rval) {
+        kfree(mtty->port);
         kfree(mtty);
         mtty_destroy_pdata(&pdata);
         dev_unisoc_bt_err(ttyBT_dev,
@@ -1327,6 +1041,7 @@ static int  mtty_probe(struct platform_device *pdev)
         create_singlethread_workqueue("SPRDBT_RX_QUEUE");
     if (!mtty->bt_rx_workqueue) {
         mtty_tty_driver_exit(mtty);
+        kfree(mtty->port);
         kfree(mtty);
         mtty_destroy_pdata(&pdata);
         dev_unisoc_bt_err(ttyBT_dev,
@@ -1362,48 +1077,6 @@ static int  mtty_probe(struct platform_device *pdev)
 
     sema_init(&sem_id, BT_TX_POOL_SIZE - 1);
 
-    /* Create HCI device automatically */
-    mtty->hdev = hci_alloc_dev();
-    if (!mtty->hdev) {
-        dev_unisoc_bt_err(ttyBT_dev,
-                          "%s: failed to allocate HCI device\n",
-                          __func__);
-        mtty_tty_driver_exit(mtty);
-        kfree(mtty);
-        mtty_destroy_pdata(&pdata);
-        return -ENOMEM;
-    }
-
-    hci_set_drvdata(mtty->hdev, mtty);
-    mtty->hdev->bus = HCI_UART;
-    mtty->hdev->dev_type = HCI_PRIMARY;
-    set_bit(HCI_QUIRK_INVALID_BDADDR, &mtty->hdev->quirks);
-    mtty->hdev->open = mtty_hci_open;
-    mtty->hdev->close = mtty_hci_close;
-    mtty->hdev->flush = mtty_hci_flush;
-    mtty->hdev->send = mtty_hci_send_frame;
-    mtty->hdev->setup = mtty_hci_setup;
-    SET_HCIDEV_DEV(mtty->hdev, &pdev->dev);
-
-    if (hci_register_dev(mtty->hdev) < 0) {
-        dev_unisoc_bt_err(ttyBT_dev,
-                          "%s: failed to register HCI device\n",
-                          __func__);
-        hci_free_dev(mtty->hdev);
-        mtty->hdev = NULL;
-        if (mtty->bt_rx_workqueue) {
-            destroy_workqueue(mtty->bt_rx_workqueue);
-        }
-        mtty_tty_driver_exit(mtty);
-        kfree(mtty);
-        mtty_destroy_pdata(&pdata);
-        return -ENODEV;
-    }
-
-    dev_unisoc_bt_info(ttyBT_dev,
-                       "%s: HCI device %s created successfully\n",
-                       __func__, mtty->hdev->name);
-
     return 0;
 }
 
@@ -1411,30 +1084,15 @@ static int  mtty_remove(struct platform_device *pdev)
 {
     struct mtty_device *mtty = platform_get_drvdata(pdev);
 
-    if (mtty && mtty->hdev) {
-        hci_unregister_dev(mtty->hdev);
-        hci_free_dev(mtty->hdev);
-        mtty->hdev = NULL;
-    }
-
-    /* Flush and destroy workqueue BEFORE TTY driver exit to prevent race */
-    if (mtty->bt_rx_workqueue) {
-        flush_workqueue(mtty->bt_rx_workqueue);
-        destroy_workqueue(mtty->bt_rx_workqueue);
-    }
-
     mtty_tty_driver_exit(mtty);
-
-    if (wcn_hw_type == HW_TYPE_SDIO) {
-        sprdwcn_bus_chn_deinit(&bt_sdio_rx_ops);
-        sprdwcn_bus_chn_deinit(&bt_sdio_tx_ops);
-    } else if (wcn_hw_type == HW_TYPE_PCIE) {
-        sprdwcn_bus_chn_deinit(&bt_pcie_rx_ops);
-        sprdwcn_bus_chn_deinit(&bt_pcie_tx_ops);
-    }
-
-    rfkill_bluetooth_remove(pdev);
+	if (wcn_hw_type == HW_TYPE_SDIO) {
+		sprdwcn_bus_chn_deinit(&bt_sdio_rx_ops);
+		sprdwcn_bus_chn_deinit(&bt_sdio_tx_ops);
+	}
+    kfree(mtty->port);
     mtty_destroy_pdata(&mtty->pdata);
+    flush_workqueue(mtty->bt_rx_workqueue);
+    destroy_workqueue(mtty->bt_rx_workqueue);
     /*tasklet_kill(&mtty->rx_task);*/
     kfree(mtty);
     platform_set_drvdata(pdev, NULL);

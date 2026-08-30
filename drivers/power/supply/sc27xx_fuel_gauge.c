@@ -584,13 +584,6 @@ static int sc27xx_fgu_get_charge_vol(struct sc27xx_fgu_data *data, int *val)
 {
 	int ret, vol;
 
-	if (!data->charge_cha) {
-		/* No charge voltage channel, return a default value */
-		dev_dbg(data->dev, "no charge-vol channel, returning default\n");
-		*val = 4200; /* Default 4200mV for lithium battery */
-		return 0;
-	}
-
 	ret = iio_read_channel_processed(data->charge_cha, &vol);
 	if (ret < 0)
 		return ret;
@@ -1115,26 +1108,14 @@ static int sc27xx_fgu_calibration(struct sc27xx_fgu_data *data)
 	size_t len;
 
 	cell = nvmem_cell_get(data->dev, "fgu_calib");
-	if (IS_ERR(cell)) {
-		dev_warn(data->dev, "no fgu calibration data in nvmem, using default calibration\n");
-		/* Default: ADC value for 1000mV is approximately 250 */
-		data->vol_1000mv_adc = 250;
-		/* Default: ADC value for 1000mA depends on resistance ratio */
-		data->cur_1000ma_adc = DIV_ROUND_CLOSEST(data->vol_1000mv_adc * 4 * data->calib_resist_real,
-							 data->calib_resist_spec);
-		return 0;
-	}
+	if (IS_ERR(cell))
+		return PTR_ERR(cell);
 
 	buf = nvmem_cell_read(cell, &len);
 	nvmem_cell_put(cell);
 
-	if (IS_ERR(buf)) {
-		dev_warn(data->dev, "failed to read fgu calibration data, using default\n");
-		data->vol_1000mv_adc = 250;
-		data->cur_1000ma_adc = DIV_ROUND_CLOSEST(data->vol_1000mv_adc * 4 * data->calib_resist_real,
-							 data->calib_resist_spec);
-		return 0;
-	}
+	if (IS_ERR(buf))
+		return PTR_ERR(buf);
 
 	memcpy(&calib_data, buf, min(len, sizeof(u32)));
 
@@ -1397,29 +1378,29 @@ static int sc27xx_fgu_probe(struct platform_device *pdev)
 
 	data->channel = devm_iio_channel_get(&pdev->dev, "bat-temp");
 	if (IS_ERR(data->channel)) {
-		dev_warn(&pdev->dev, "no bat-temp IIO channel, using default temperature\n");
-		data->channel = NULL;
+		dev_err(&pdev->dev, "failed to get IIO channel\n");
+		return PTR_ERR(data->channel);
 	}
 
 	data->charge_cha = devm_iio_channel_get(&pdev->dev, "charge-vol");
 	if (IS_ERR(data->charge_cha)) {
-		dev_warn(&pdev->dev, "no charge-vol IIO channel, will use ADC readings\n");
-		data->charge_cha = NULL;
+		dev_err(&pdev->dev, "failed to get charge IIO channel\n");
+		return PTR_ERR(data->charge_cha);
 	}
 
 	data->gpiod = devm_gpiod_get(&pdev->dev, "bat-detect", GPIOD_IN);
 	if (IS_ERR(data->gpiod)) {
-		dev_warn(&pdev->dev, "no bat-detect GPIO, battery present assumed\n");
-		data->gpiod = NULL;
-		data->bat_present = true;
-	} else {
-		ret = gpiod_get_value_cansleep(data->gpiod);
-		if (ret < 0) {
-			dev_err(&pdev->dev, "failed to get gpio state\n");
-			return ret;
-		}
-		data->bat_present = !!ret;
+		dev_err(&pdev->dev, "failed to get battery detection GPIO\n");
+		return PTR_ERR(data->gpiod);
 	}
+
+	ret = gpiod_get_value_cansleep(data->gpiod);
+	if (ret < 0) {
+		dev_err(&pdev->dev, "failed to get gpio state\n");
+		return ret;
+	}
+
+	data->bat_present = !!ret;
 	mutex_init(&data->lock);
 	data->dev = &pdev->dev;
 	platform_set_drvdata(pdev, data);
