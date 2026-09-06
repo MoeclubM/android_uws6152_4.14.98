@@ -168,6 +168,11 @@ struct mmc_request {
 	bool			cap_cmd_during_tfr;
 
 	int			tag;
+#ifdef CONFIG_MMC_CRYPTO
+	int crypto_key_slot;
+	u64 data_unit_num;
+	const struct blk_crypto_key *crypto_key;
+#endif
 };
 
 struct mmc_card;

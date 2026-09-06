@@ -79,7 +79,7 @@
 //please config the chip series before using.
 
 #define HYN_CHIP_TYPE_CONFIG						CST9217
-#define HYN_IRQ_TRIGGER_RISING_CONFIG	    	    0x01 
+#define HYN_IRQ_TRIGGER_RISING_CONFIG	    	    0x00 // stock/OEM branch uses FALLING (INT idles hi) 
 #define HYN_MAIN_IIC_ADDR_CONFIG		    	    0x5A 
 
 #define HYN_X_DISPLAY_DEFAULT              	 	    410
@@ -275,6 +275,8 @@ struct hynitron_ts_data{
 	struct pinctrl *ts_pinctrl;
 	struct pinctrl_state *gpio_state_active;
 	struct pinctrl_state *gpio_state_suspend;
+	struct pinctrl_state *eic_state_active;
+	int eic_irq;
 
 };
 extern struct hynitron_ts_data *hyn_ts_data ;

@@ -172,3 +172,4 @@ struct statx {
 
 
 #endif /* _UAPI_LINUX_STAT_H */
+#define STATX_ATTR_VERITY 0x00100000

@@ -13,6 +13,7 @@
 
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_crtc_helper.h>
+#include <drm/drm_mode.h>
 #include <drm/drm_of.h>
 #include <linux/component.h>
 #include <linux/of_address.h>
@@ -36,6 +37,36 @@
 
 LIST_HEAD(dsi_core_head);
 LIST_HEAD(dsi_glb_head);
+static DEFINE_MUTEX(dsi_lock);
+
+int dsi_panel_set_dpms_mode(struct sprd_dsi *dsi)
+{
+	mutex_lock(&dsi_lock);
+
+	/*
+	 * FIXME:
+	 * Doze Suspend -> OFF, dsi has suspended
+	 */
+	if ((dsi->ctx.dpms == DRM_MODE_DPMS_OFF) &&
+		(dsi->ctx.last_dpms == DRM_MODE_DPMS_SUSPEND)) {
+		DRM_INFO("%s(panel off)\n", __func__);
+		drm_panel_unprepare(dsi->panel);
+		dsi->ctx.last_dpms = dsi->ctx.dpms;
+		mutex_unlock(&dsi_lock);
+		return 0;
+	}
+
+	if (!dsi->ctx.is_inited) {
+		mutex_unlock(&dsi_lock);
+		DRM_INFO("dsi is not inited,just skip\n");
+		return 0;
+	}
+
+	DRM_INFO("%s(just skip it)\n", __func__);
+	mutex_unlock(&dsi_lock);
+
+	return 0;
+}
 
 static int sprd_dsi_resume(struct sprd_dsi *dsi)
 {

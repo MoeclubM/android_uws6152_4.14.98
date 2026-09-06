@@ -43,9 +43,9 @@ static char black_list_comm_str[MAX_STR_LEN] = {0};
 static char white_list_comm_str[MAX_STR_LEN] = {0};
 static char app_guid_str[MAX_SIZE] = {0};
 
-static int atoi(const char *str)
+static unsigned int atoi(const char *str)
 {
-	int value = 0;
+	unsigned int value = 0;
 
 	while (*str >= '0' && *str <= '9') {
 		value *= 10;
@@ -73,7 +73,7 @@ int analyse_separate(char *str, char str_array[][MAX_SIZE], char *needle)
 
 	while (NULL != buf) {
 		buf[0] = '\0';
-		strcpy(str_array[i], pchar);
+		strncpy(str_array[i], pchar, MAX_SIZE - 1);
 		i++;
 		pchar = buf + strlen(needle);
 		/* Get next token: */
@@ -84,7 +84,7 @@ int analyse_separate(char *str, char str_array[][MAX_SIZE], char *needle)
 }
 
 /* black_list */
-static int black_list[MAX_SIZE] = {0};
+static unsigned int black_list[MAX_SIZE] = {0};
 
 static int black_list_proc_show(struct seq_file *m, void *v)
 {
@@ -295,7 +295,7 @@ static const struct file_operations white_list_comm_proc_fops = {
 
 
 /* app guid */
-static int app_guid;
+static unsigned int app_guid;
 
 static int app_guid_proc_show(struct seq_file *m, void *v)
 {
@@ -360,7 +360,7 @@ static void __exit reserve_space_proc_exit(void)
 bool is_in_black_list(uid_t euid, gid_t egid)
 {
 	bool ret = false;
-	int i = 0, j = 0;
+	unsigned int i = 0, j = 0;
 	uid_t id[2] = {euid, egid};
 
 	if ('\0' != black_list_comm[0][0]) {
@@ -377,8 +377,8 @@ bool is_in_black_list(uid_t euid, gid_t egid)
 	if (0 == black_list[0])
 		return false;
 
-	for (i = 0; i < sizeof(id)/sizeof(uid_t); i++) {
-		for (j = 0; j < sizeof(black_list)/sizeof(int); j++) {
+	for (i = 0; i < ARRAY_SIZE(id); i++) {
+		for (j = 0; j < ARRAY_SIZE(black_list); j++) {
 			if (0 == black_list[j])
 				break;
 
@@ -392,7 +392,7 @@ bool is_in_black_list(uid_t euid, gid_t egid)
 
 int is_in_white_list(void)
 {
-	int i = 0;
+	unsigned int i = 0;
 	kgid_t cur_mgid;
 	bool ret = false;
 
@@ -408,7 +408,7 @@ int is_in_white_list(void)
 	if (0 == white_list[0])
 		return false;
 
-	for (i = 0; i < sizeof(white_list)/sizeof(int); i++) {
+	for (i = 0; i < ARRAY_SIZE(white_list); i++) {
 		if (0 == white_list[i])
 			break;
 
@@ -430,10 +430,8 @@ bool check_have_permission(int log_print)
 
 	current_euid_egid(&cur_euid, &cur_egid);
 
-	if (is_in_white_list()) {
-		pr_info("whitelist: egid is in egid groups.\n");
+	if (is_in_white_list())
 		return ret = true;
-	}
 
 	if (0 != app_guid) {
 		ret = (cur_euid.val < app_guid || cur_egid.val < app_guid) ?

@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Unisoc LCD CO5300 MIPI 410x502 AMOLED Panel DTS
+ */
+
+/ {
+	lcds {
+		lcd_co5300_mipi_410x502_qc_hd: lcd_co5300_mipi_410x502_qc_hd {
+			sprd,dsi-work-mode = <0>;
+			sprd,dsi-lane-number = <1>;
+			sprd,dsi-color-format = "rgb888";
+			sprd,phy-bit-clock = <368000>;
+			sprd,phy-escape-clock = <20000>;
+			sprd,width-mm = <42>;
+			sprd,height-mm = <43>;
+			sprd,esd-check-enable = <0>;
+			sprd,esd-check-mode = <0>;
+			sprd,esd-check-period = <1000>;
+			sprd,esd-check-register = <0x0a>;
+			sprd,esd-check-value = <0x9c>;
+			sprd,reset-on-sequence = <1 5 0 5 1 20>;
+			sprd,reset-off-sequence = <1 5>;
+			sprd,use-dcs-write;
+			sprd,initial-command = [15 00 00 02 fe 00 15 00 00 02 3a 77 15 00 00 02 35 00 15 00 00 02 53 20 15 00 00 02 51 00 15 00 00 02 63 ff 39 00 00 05 2a 00 16 01 ad 39 00 00 05 2b 00 00 01 f5 39 00 00 05 31 00 16 01 ad 39 00 00 05 30 00 00 01 f5 05 00 00 01 12 05 78 00 01 11 05 32 00 01 29];
+			sprd,sleep-in-command = [15 32 00 01 28 15 78 00 01 10];
+			sprd,sleep-out-command = [15 78 00 01 11 15 32 00 01 29];
+
+			oled-backlight {
+				default-brightness-level = <25>;
+				sprd,max-level = <255>;
+			};
+
+			display-timings {
+				timing0 {
+					clock-frequency = <12800000>;
+					hactive = <410>;
+					vactive = <502>;
+					hback-porch = <0>;
+					hfront-porch = <0>;
+					vback-porch = <0>;
+					vfront-porch = <0>;
+					hsync-len = <0>;
+					vsync-len = <0>;
+				};
+			};
+		};
+	};
+};

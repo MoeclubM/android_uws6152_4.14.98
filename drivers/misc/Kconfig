@@ -544,4 +544,45 @@ source "drivers/misc/sprd_jpg/Kconfig"
 source "drivers/misc/sprdwcn/Kconfig"
 source "drivers/misc/sprd_audio/Kconfig"
 source "drivers/misc/sprd_apdu/Kconfig"
+
+config MAFP_STUB
+	tristate "UWS6152 microarray mafp fingerprint stub (spi fingerprint@2)"
+	default y if ARCH_SPRD
+	help
+	  Minimal stub binding compatible="microarray,mafp".
+	  Claims spi2.0 so the fingerprint HAL can open the node
+	  instead of spinning on ENOENT. No closed algorithms.
+
+config MAFP_MADEV
+	tristate "MicroArray fingerprint TEE-mode driver (microarray,mafp)"
+	default y if ARCH_SPRD
+	help
+	  TEE-mode madev driver for UWS6152 w527: /dev/madev0,
+	  full mas_ioctl table, 128KB mmap, fpint-gpios irq.
+	  Supersedes MAFP_STUB; enable one of the two only.
+
 endmenu
+
+config INPUT_AS1509_STUB
+	tristate "UWS6152 as1509 crown stub (i2c as1509@19)"
+	default y if ARCH_SPRD
+	help
+	  Minimal stub for AS1509 crown controller on UWS6152 w527.
+	  Binds compatible="as,as1509_i2c" and exposes crown keys.
+
+config INPUT_QMC6308_STUB
+	tristate "UWS6152 qmc6308 compass stub"
+	default y if ARCH_SPRD
+
+config INPUT_BD1860_STUB
+	tristate "UWS6152 bd1860 heartrate stub"
+	default y if ARCH_SPRD
+
+config INPUT_BD1860_LIFTED
+	tristate "UWS6152 bd1860 lifted stock driver+algorithm"
+	default y if ARCH_SPRD
+
+config MIR3DA_STUB
+	tristate "UWS6152 mir3da/da217 accel stub (i2c mir3da@26)"
+	default y if ARCH_SPRD
+	depends on IIO

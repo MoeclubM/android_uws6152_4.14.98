@@ -951,6 +951,11 @@ static irqreturn_t sprd_dpu_isr(int irq, void *data)
 	if (dpu->core && dpu->core->isr)
 		int_mask = dpu->core->isr(ctx);
 
+	if (int_mask & DISPC_INT_TE_MASK) {
+		if (ctx->if_type == SPRD_DISPC_IF_EDPI)
+			drm_crtc_handle_vblank(&dpu->crtc);
+	}
+
 	if (int_mask & DISPC_INT_ERR_MASK)
 		DRM_WARN("Warning: dpu underflow!\n");
 

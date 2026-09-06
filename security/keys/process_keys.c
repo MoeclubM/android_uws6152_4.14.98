@@ -888,3 +888,4 @@ static int __init init_root_keyring(void)
 }
 
 late_initcall(init_root_keyring);
+EXPORT_SYMBOL(lookup_user_key);

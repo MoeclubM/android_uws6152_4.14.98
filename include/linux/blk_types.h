@@ -10,6 +10,7 @@
 #include <linux/bvec.h>
 
 struct bio_set;
+struct bio_crypt_ctx;
 struct bio;
 struct bio_integrity_payload;
 struct page;
@@ -114,6 +115,10 @@ struct bio {
 	struct bio_vec		*bi_io_vec;	/* the actual vec list */
 
 	struct bio_set		*bi_pool;
+#ifdef CONFIG_BLK_INLINE_ENCRYPTION
+	struct bio_crypt_ctx	*bi_crypt_context;
+#endif
+
 
 	/*
 	 * We can inline a number of vecs at the end of the bio, to avoid

@@ -232,20 +232,20 @@ int cst3xx_i2c_write(struct i2c_client *client, unsigned char *buf, int len)
             break; 
 	} 
 	
-    printk("[HYN]cst3xx_i2c_write ret: %d, addr: 0x%X", ret, client->addr);
+    pr_debug("[HYN]cst3xx_i2c_write ret: %d, addr: 0x%X", ret, client->addr);
 
-	return ret; 
+	return ret;
 }
 
-int cst3xx_i2c_read_register(struct i2c_client *client, unsigned char *buf, int len) 
-{ 
-	int ret = -1; 
-    
+int cst3xx_i2c_read_register(struct i2c_client *client, unsigned char *buf, int len)
+{
+	int ret = -1;
+
     ret = cst3xx_i2c_write(client, buf, 2);
 
     ret = cst3xx_i2c_read(client, buf, len);
-	
-	printk("[HYN]cst3xx_i2c_read_register ret: %d, addr: 0x%X", ret, client->addr);
+
+	pr_debug("[HYN]cst3xx_i2c_read_register ret: %d, addr: 0x%X", ret, client->addr);
 
     return ret; 
 } 

@@ -567,7 +567,7 @@ static int hyn_exc_cmdpack(void *unused)//(void *iic_client)
 		schedule_timeout(1);
 
 		g_exc_flag = 0;
-		wait_event(run_cmd_waiter, g_exc_flag!=0);
+		wait_event_interruptible(run_cmd_waiter, g_exc_flag != 0 || kthread_should_stop());
 		
 		g_cmdret[0]= -1;
 		

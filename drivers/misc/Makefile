@@ -81,3 +81,10 @@ OBJCOPYFLAGS_lkdtm_rodata_objcopy.o := \
 targets += lkdtm_rodata.o lkdtm_rodata_objcopy.o
 $(obj)/lkdtm_rodata_objcopy.o: $(obj)/lkdtm_rodata.o FORCE
 	$(call if_changed,objcopy)
+obj-$(CONFIG_MAFP_STUB)		+= mafp_stub.o
+obj-$(CONFIG_MAFP_MADEV)		+= mafp_madev.o
+obj-$(CONFIG_INPUT_AS1509_STUB)		+= as1509_stub.o
+obj-$(CONFIG_INPUT_QMC6308_STUB)		+= qmc6308_stub.o
+obj-$(CONFIG_INPUT_BD1860_STUB)		+= bd1860_stub.o
+obj-$(CONFIG_INPUT_BD1860_LIFTED)	+= bd1860_lifted.o
+obj-$(CONFIG_MIR3DA_STUB)		+= mir3da_stub.o

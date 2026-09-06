@@ -24,6 +24,7 @@
 #include "hynitron_update_firmware.h"
 
 #include <linux/pinctrl/consumer.h>
+#include <linux/of_irq.h>
 
 /*****************************************************************************
 Main control platform----spreadtrum
@@ -1757,7 +1758,6 @@ static void hyn_resume(struct hynitron_ts_data *ts)
     hyn_irq_enable();
 }
 
-#undef CONFIG_FB
 #if   defined(CONFIG_FB)
 static void hyn_ts_resume_work(struct work_struct *work)
 {
@@ -1942,7 +1942,11 @@ static int hyn_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}	
 	
 	 /* ===== 第5步：设置pinctrl状态 ===== */
-    ts_data->ts_pinctrl = devm_pinctrl_get(&client->dev);
+    /* DTS only defines hyn_irq_gpio/hyn_irq_eic, no "default" state:
+     * use devm_pinctrl_get_select to tolerate the missing default. */
+    ts_data->ts_pinctrl = devm_pinctrl_get_select(&client->dev, "hyn_irq_gpio");
+    if (IS_ERR(ts_data->ts_pinctrl))
+        ts_data->ts_pinctrl = devm_pinctrl_get(&client->dev);
     if (!IS_ERR(ts_data->ts_pinctrl)) {
         ts_data->gpio_state_active = pinctrl_lookup_state(ts_data->ts_pinctrl, "hyn_irq_gpio");
         if (!IS_ERR(ts_data->gpio_state_active)) {
@@ -1954,6 +1958,12 @@ static int hyn_probe(struct i2c_client *client, const struct i2c_device_id *id)
             }
         } else {
             HYN_ERROR("pinctrl state hyn_irq_gpio not found");
+        }
+        ts_data->eic_state_active = pinctrl_lookup_state(ts_data->ts_pinctrl, "hyn_irq_eic");
+        if (!IS_ERR(ts_data->eic_state_active)) {
+            HYN_INFO("pinctrl state hyn_irq_eic available (reserved for wake)");
+        } else {
+            HYN_ERROR("pinctrl state hyn_irq_eic not found");
         }
     } else {
         HYN_ERROR("No pinctrl available for device");
@@ -1983,8 +1993,8 @@ static int hyn_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	if (ret<0){
         HYN_ERROR("Touch Probe : hyn_irq_init  fail...");
         goto err_end;
-    }	  
-	hyn_irq_disable();	
+    }
+	hyn_irq_disable();
 
 	ret=hyn_update_firmware_init(client);
 	if (ret<0){
@@ -2162,7 +2172,7 @@ static struct i2c_driver hynitron_i2c_driver =
         .name = HYN_DRIVER_NAME,
 		.owner	= THIS_MODULE,
         .of_match_table = of_match_ptr(hyn_dt_match),
-#if !defined(CONFIG_FB) && defined(CONFIG_PM)
+#if defined(CONFIG_PM)
 		.pm = &hyn_ts_pm_ops,
 #endif
     },

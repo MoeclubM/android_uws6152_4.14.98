@@ -1,4 +1,5 @@
 obj-$(CONFIG_SPRD_MEMDISK)	+= sprd_memdisk.o
+obj-$(CONFIG_SPRD_SYSTIMER)	+= sprd_systimer.o
 obj-$(CONFIG_SPRD_7SRESET)	+= sprd_7sreset.o
 obj-$(CONFIG_SPRD_POWER_DEBUG)	+= sprd_powerdebug.o
 obj-$(CONFIG_SPRD_IOMMU)        += iommu/
@@ -10,3 +11,4 @@ obj-$(CONFIG_SPRD_SYSDUMP)      += debug/sysdump/
 obj-y				+= performance/
 obj-y				+= pub/
 obj-y				+= autotest/
+obj-$(CONFIG_SPRD_POWER) += power/

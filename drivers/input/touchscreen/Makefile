@@ -110,5 +110,5 @@ obj-$(CONFIG_TOUCHSCREEN_ADAPTIVE)      += adaptive-ts/
 #obj-$(CONFIG_TOUCHSCREEN_CST3XX)	+= cst3xx/
 obj-$(CONFIG_TOUCHSCREEN_HYNITRON_TS)	+= hynitron/
 obj-$(CONFIG_TOUCHSCREEN_GOODIX)	+= gt911/
-obj-y	+= virtual_touch.o
+# # obj-y += virtual_touch.o
 obj-y	+= slot_hub.o

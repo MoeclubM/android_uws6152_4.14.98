@@ -99,6 +99,9 @@ struct dsi_context {
 	bool te_ack_en;
 	/* enable non coninuous clock for energy saving */
 	bool nc_clk_en;
+	/* supported dpms mode */
+	int dpms;
+	int last_dpms;
 };
 
 struct dsi_core_ops {
@@ -204,6 +207,9 @@ struct sprd_dsi {
 
 extern struct list_head dsi_core_head;
 extern struct list_head dsi_glb_head;
+
+struct sprd_dsi;
+int dsi_panel_set_dpms_mode(struct sprd_dsi *dsi);
 
 #define dsi_core_ops_register(entry) \
 	disp_ops_register(entry, &dsi_core_head)

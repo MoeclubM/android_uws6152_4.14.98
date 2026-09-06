@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Unisoc UWS6152 1H10 Board DTS (CD12x / W527 Smartwatch)
+ */
+
+/dts-v1/;
+
+#include "ums312-1h10.dts"
+#include "lcd/lcd_co5300_mipi_410x502_qc_hd.dtsi"
+
+/ {
+	model = "Unisoc UWS6152 1H10 board";
+	compatible = "sprd,uws6152", "sprd,ums312";
+	sprd,sc-id = <0x1808 0x01 0x20000>;
+};
+
+&i2c3 {
+	status = "okay";
+
+	hynitron@5a {
+		compatible = "hyn,92xx";
+		reg = <0x5a>;
+		reset-gpio = <&ap_gpio 145 0>;
+		irq-gpio = <&ap_gpio 144 0>;
+		max-touch-number = <5>;
+		display-coords = <0 0 410 502>;
+		pos-swap = <0>;
+		posx-reverse = <1>;
+		posy-reverse = <1>;
+		status = "okay";
+	};
+};
