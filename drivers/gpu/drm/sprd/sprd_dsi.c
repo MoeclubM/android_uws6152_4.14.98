@@ -25,6 +25,7 @@
 #include "disp_lib.h"
 #include "sprd_dpu.h"
 #include "sprd_dsi.h"
+#include "sprd_panel.h"
 #include "dsi/sprd_dsi_api.h"
 #include "sysfs/sysfs_display.h"
 
@@ -62,7 +63,19 @@ int dsi_panel_set_dpms_mode(struct sprd_dsi *dsi)
 		return 0;
 	}
 
-	DRM_INFO("%s(just skip it)\n", __func__);
+	if ((dsi->ctx.dpms == DRM_MODE_DPMS_STANDBY) &&
+		(dsi->ctx.last_dpms == DRM_MODE_DPMS_ON)) {
+		sprd_panel_enter_doze(dsi->panel);
+		DRM_INFO("%s(panel enter doze)\n", __func__);
+		dsi->ctx.last_dpms = dsi->ctx.dpms;
+	} else if ((dsi->ctx.dpms == DRM_MODE_DPMS_ON) &&
+		(dsi->ctx.last_dpms == DRM_MODE_DPMS_STANDBY)) {
+		sprd_panel_exit_doze(dsi->panel);
+		DRM_INFO("%s(panel exit doze)\n", __func__);
+		dsi->ctx.last_dpms = dsi->ctx.dpms;
+	} else {
+		DRM_INFO("%s(just skip it)\n", __func__);
+	}
 	mutex_unlock(&dsi_lock);
 
 	return 0;

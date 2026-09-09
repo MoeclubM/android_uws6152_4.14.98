@@ -28,8 +28,6 @@
 #include "sprd_gem.h"
 #include "sysfs/sysfs_display.h"
 
-extern int sprd_mcu_poweron_cammot(void);
-extern int sprd_mcu_poweroff_cammot(void);
 
 struct sprd_plane {
 	struct drm_plane plane;
@@ -595,8 +593,6 @@ static void sprd_crtc_atomic_enable(struct drm_crtc *crtc,
 
 	DRM_INFO("%s()\n", __func__);
 
-	/* turn on mcu power */
-	sprd_mcu_poweron_cammot();
 
 	/*
 	 * add if condition to avoid resume dpu for SR feature.
@@ -633,7 +629,7 @@ static void sprd_crtc_wait_last_commit_complete(struct drm_crtc *crtc)
 		return;
 
 	ret = wait_for_completion_interruptible_timeout(&commit->cleanup_done,
-							HZ);
+							msecs_to_jiffies(250));
 	if (ret == 0)
 		DRM_WARN("wait last commit completion timed out\n");
 
@@ -648,8 +644,6 @@ static void sprd_crtc_atomic_disable(struct drm_crtc *crtc,
 
 	DRM_INFO("%s()\n", __func__);
 
-	/* turn off mcu power */
-	sprd_mcu_poweroff_cammot();	
 
 	/* add if condition to avoid suspend dpu for SR feature */
 	if (crtc->state->mode_changed && !crtc->state->active_changed)

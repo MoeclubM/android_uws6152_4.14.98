@@ -32,7 +32,7 @@
 #define DRIVER_MAJOR	1
 #define DRIVER_MINOR	0
 
-#define SPRD_FENCE_WAIT_TIMEOUT 3000 /* ms */
+#define SPRD_FENCE_WAIT_TIMEOUT 750 /* ms, aligned with stock kernel */
 
 static bool cali_mode;
 
