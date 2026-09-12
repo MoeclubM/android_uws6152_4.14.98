@@ -424,6 +424,8 @@ static u32 dpu_isr(struct dpu_context *ctx)
 
 	/* dpu update done isr */
 	if (reg_val & DISPC_INT_UPDATE_DONE_MASK) {
+		/* dpu dvfs feature */
+		tasklet_schedule(&ctx->dvfs_task);
 		evt_update = true;
 		wake_up_interruptible_all(&wait_queue);
 	}
@@ -435,8 +437,7 @@ static u32 dpu_isr(struct dpu_context *ctx)
 			work_now(&ctx->wb_work);
 		vsync_count++;
 
-		/* dpu dvfs feature */
-		work_now(&ctx->dvfs_work);
+
 	}
 
 	/* dpu stop done isr */
@@ -728,19 +729,16 @@ static int dpu_write_back_config(struct dpu_context *ctx)
 	return 0;
 }
 
-static void dpu_dvfs_work_func(struct work_struct *data)
+static void dpu_dvfs_task_func(unsigned long data)
 {
-	struct dpu_context *ctx =
-		container_of(data, struct dpu_context, dvfs_work);
+	struct dpu_context *ctx = (struct dpu_context *)data;
 	struct dpu_reg *reg = (struct dpu_reg *)ctx->base;
 	struct sprd_dpu_layer layer, layers[8];
 	int i, j, max_x, max_y, min_x, min_y;
 	int layer_en, max, maxs[8], count = 0;
 	u32 dvfs_freq;
 
-	down(&ctx->refresh_lock);
 	if (!ctx->is_inited) {
-		up(&ctx->refresh_lock);
 		pr_info("dpu is not initialized\n");
 		return;
 	}
@@ -759,7 +757,6 @@ static void dpu_dvfs_work_func(struct work_struct *data)
 			count++;
 		}
 	}
-	up(&ctx->refresh_lock);
 
 	/*
 	 * Calculate the number of overlaps between each
@@ -860,7 +857,7 @@ static int dpu_init(struct dpu_context *ctx)
 
 	dpu_corner_init(ctx);
 
-	INIT_WORK(&ctx->dvfs_work, dpu_dvfs_work_func);
+	tasklet_init(&ctx->dvfs_task, dpu_dvfs_task_func, (unsigned long)ctx);
 
 	return 0;
 }
@@ -874,7 +871,7 @@ static void dpu_uninit(struct dpu_context *ctx)
 
 	panel_ready = false;
 
-	cancel_work_sync(&ctx->dvfs_work);
+	tasklet_kill(&ctx->dvfs_task);
 }
 
 enum {
