@@ -335,7 +335,7 @@ static int cst9217_probe(struct i2c_client *client, const struct i2c_device_id *
     // 使用上升沿
     ret = devm_request_threaded_irq(&client->dev, ts->irq, NULL,
                                     cst9217_irq_handler,
-                                    IRQF_ONESHOT | IRQF_TRIGGER_RISING, 
+                                    IRQF_ONESHOT | IRQF_TRIGGER_FALLING, 
                                     "hyn_ts", ts);
     if (ret) {
         HYN_ERR("Failed to request IRQ %d\n", ts->irq);

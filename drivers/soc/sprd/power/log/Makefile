@@ -9,8 +9,6 @@ sprd_powerlog_sharkl6-objs := $(sprd_debuglog_common) sprd_debuglog_sharkl6.o
 obj-$(CONFIG_SPRD_POWER_LOG_SHARKL5PRO)	+= sprd_powerlog_sharkl5pro.o
 sprd_powerlog_sharkl5pro-objs := $(sprd_debuglog_common) sprd_debuglog_sharkl5pro.o
 
-obj-$(CONFIG_SPRD_POWER_LOG_SHARKL5)	+= sprd_powerlog_sharkl5.o
-sprd_powerlog_sharkl5-objs := $(sprd_debuglog_common) sprd_debuglog_sharkl5.o
 
 obj-$(CONFIG_SPRD_POWER_LOG_SHARKL3)	+= sprd_powerlog_sharkl3.o
 sprd_powerlog_sharkl3-objs := $(sprd_debuglog_common) sprd_debuglog_sharkl3.o

@@ -184,7 +184,7 @@
 		cm-fullbatt-capacity = <100>;
 
 		cm-num-chargers = <1>;
-		cm-chargers = "sc2703_charger";
+		cm-chargers = "eta6947_charger";
 		cm-fuel-gauge = "sc27xx-fgu";
 
 		/* in deci centigrade */

@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * UWS6152 w527 watch sensors/charger nodes, aligned with stock FDT.
+ * i2c2 = 0x70500000 (100kHz): qmc6308 compass, bd1860 heartrate,
+ *        as1509 crown keys, mir3da accel.
+ * i2c4 = 0x70700000 (400kHz): eta6947 charger.
+ * Touch (hyn,92xx @0x5a on i2c3) stays in cd12x.dts, untouched.
+ */
+
+&i2c2 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	qmc6308@2c {
+		compatible = "qmc,qmc6308";
+		reg = <0x2c>;
+		status = "okay";
+	};
+
+	bd1860@40 {
+		compatible = "bd,bd1860";
+		reg = <0x40>;
+		status = "okay";
+	};
+
+	as1509@19 {
+		compatible = "as,as1509_i2c";
+		reg = <0x19>;
+		as,irq-gpio = <&ap_gpio 15 1>;
+		key-code-up = <0x41>;
+		key-code-down = <0x42>;
+		key-code-front = <0x3d>;
+		key-code-back = <0x3e>;
+		status = "okay";
+	};
+
+	mir3da@26 {
+		compatible = "da,da217";
+		reg = <0x26>;
+		layout = <0x07>;
+		irq1,irq-gpio = <&ap_gpio 12 1>;
+		status = "okay";
+	};
+};
+
+&i2c4 {
+	status = "okay";
+
+	charger@6a {
+		compatible = "eta,eta6947_chg";
+		reg = <0x6a>;
+		monitored-battery = <&bat>;
+		extcon = <&pmic_typec>;
+		status = "okay";
+	};
+};

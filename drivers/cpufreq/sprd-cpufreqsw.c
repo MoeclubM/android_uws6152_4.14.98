@@ -1232,7 +1232,7 @@ static int sprd_cpufreq_resume(struct cpufreq_policy *policy)
 		return 0;
 	}
 
-	return cpufreq_generic_suspend(policy);
+	return 0;
 }
 
 /*

@@ -17,6 +17,7 @@ config SPRD_POWER_LOG_SHARKL5PRO
 config SPRD_POWER_LOG_SHARKL5
 	tristate "SharkL5 debug power log"
 	depends on SPRD_POWER_LOG
+	default y
 
 config SPRD_POWER_LOG_SHARKL3
 	tristate "SharkL3 debug power log"

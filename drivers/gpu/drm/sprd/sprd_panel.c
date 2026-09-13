@@ -428,6 +428,15 @@ static void sprd_panel_esd_work_func(struct work_struct *work)
     ret = sprd_panel_esd_check(panel);
     if (ret) {
         panel->esd_work_pending = false;
+        if (!panel->base.connector || !panel->base.connector->encoder ||
+            !panel->base.connector->encoder->crtc ||
+            (panel->base.connector->encoder->crtc->state &&
+             !panel->base.connector->encoder->crtc->state->active)) {
+            DRM_INFO("skip esd recovery during panel suspend\n");
+            panel->esd_work_backup = true;
+            mutex_unlock(&panel_lock);
+            return;
+        }
         mutex_unlock(&panel_lock);
 
         /* 通过 panel 自身回调恢复 */
@@ -435,6 +444,7 @@ static void sprd_panel_esd_work_func(struct work_struct *work)
         sprd_panel_unprepare(&panel->base);
         sprd_panel_prepare(&panel->base);
         sprd_panel_enable(&panel->base);
+        panel->esd_work_backup = false;
     } else {
         schedule_delayed_work(&panel->esd_work,
                               msecs_to_jiffies(info->esd_check_period));

@@ -1074,6 +1074,8 @@ static void dpu_layer(struct dpu_context *ctx,
 	layer->alpha = hwlayer->alpha;
 
 	wd = drm_format_plane_cpp(hwlayer->format, 0);
+	if (!wd)
+		return;
 	if (hwlayer->planes == 3)
 		/* UV pitch is 1/2 of Y pitch*/
 		layer->pitch = (hwlayer->pitch[0] / wd) |
