@@ -57,5 +57,9 @@
 		monitored-battery = <&bat>;
 		extcon = <&extcon_gpio>;
 		status = "okay";
+
+		vddvbus: otg-vbus {
+			regulator-name = "vddvbus";
+		};
 	};
 };

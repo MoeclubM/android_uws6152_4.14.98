@@ -468,7 +468,7 @@
 			phys = <&hsphy>;
 			monitored-battery = <&bat>;
 			extcon = <&pmic_typec>;
-			vddvbus:otg-vbus {
+			otg-vbus {
 				regulator-name = "vddvbus";
 			};
 		};
