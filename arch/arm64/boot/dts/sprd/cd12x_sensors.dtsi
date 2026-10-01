@@ -4,6 +4,10 @@
  * i2c2 = 0x70500000 (100kHz): qmc6308 compass, bd1860 heartrate,
  *        as1509 crown keys, mir3da accel.
  * i2c4 = 0x70700000 (400kHz): eta6947 charger.
+ * GPIO banks per stock FDT: as1509 irq on eic-async (320000a0),
+ * mir3da irq on eic-sync (320000c0); charger needs phys (hsphy) +
+ * extcon (extcon-gpio) or probe fails (devm_usb_get_phy_by_phandle /
+ * extcon_get_edev_by_phandle both fatal).
  * Touch (hyn,92xx @0x5a on i2c3) stays in cd12x.dts, untouched.
  */
 
@@ -26,7 +30,7 @@
 	as1509@19 {
 		compatible = "as,as1509_i2c";
 		reg = <0x19>;
-		as,irq-gpio = <&ap_gpio 15 1>;
+		as,irq-gpio = <&eic_async 15 1>;
 		key-code-up = <0x41>;
 		key-code-down = <0x42>;
 		key-code-front = <0x3d>;
@@ -38,7 +42,7 @@
 		compatible = "da,da217";
 		reg = <0x26>;
 		layout = <0x07>;
-		irq1,irq-gpio = <&ap_gpio 12 1>;
+		irq1,irq-gpio = <&eic_sync 12 1>;
 		status = "okay";
 	};
 };
@@ -49,8 +53,9 @@
 	charger@6a {
 		compatible = "eta,eta6947_chg";
 		reg = <0x6a>;
+		phys = <&hsphy>;
 		monitored-battery = <&bat>;
-		extcon = <&pmic_typec>;
+		extcon = <&extcon_gpio>;
 		status = "okay";
 	};
 };
